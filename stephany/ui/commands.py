@@ -168,6 +168,12 @@ class EditorCommands:
         target_line = cur.blockNumber() + rows
         if target_line < 0 or target_line >= self.blockCount():
             return False
+        # 跳過被摺疊藏起來的行，否則游標會消失在看不見的地方（SRS-003 BR-FD-6）
+        if not self.document().findBlockByNumber(target_line).isVisible():
+            found = self._next_visible_line(cur.blockNumber(), 1 if rows > 0 else -1)
+            if found is None:
+                return False
+            target_line = found
         col = index_to_col(
             cur.block().text(),
             cur.positionInBlock(),
@@ -295,6 +301,24 @@ class EditorCommands:
         return self.goto_prev_bookmark()
 
     # ------------------------------------------------------------------
+    # 程式碼摺疊（SRS-003）
+    # ------------------------------------------------------------------
+    def cmd_fold_toggle(self) -> bool:
+        return self.toggle_fold()
+
+    def cmd_fold_all(self) -> bool:
+        self.fold_all()
+        return True
+
+    def cmd_unfold_all(self) -> bool:
+        self.unfold_all()
+        return True
+
+    def cmd_fold_level(self, level: int) -> bool:
+        self.fold_to_level(level)
+        return True
+
+    # ------------------------------------------------------------------
     # 搜尋（讓「找到→改掉→再找」這種巨集成立）
     # ------------------------------------------------------------------
     def cmd_find_next(
@@ -335,6 +359,7 @@ class EditorCommands:
             found = self.document().find(needle, restart, flags)
         if found.isNull():
             return False
+        self.ensure_line_visible(found.blockNumber())  # BR-FD-5
         self.setTextCursor(found)
         self.ensureCursorVisible()
         return True

@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
         ed.encoding = "utf-8"
         ed.eol = "\n"
         ed.highlighter = SimpleHighlighter(ed.document(), language_for(path), ed.palette())
+        ed.set_fold_style_for(path)
         ed.set_tab_width(self._tab_width)
         if self._font:
             ed.apply_font(QFont(self._font))
@@ -186,6 +187,7 @@ class MainWindow(QMainWindow):
         ed.setPlainText(result.text)
         ed.document().setModified(False)
         ed.highlighter.set_language(language_for(path))
+        ed.set_fold_style_for(path)
         self._update_tab_title(ed)
         self._update_status()
 
@@ -220,6 +222,7 @@ class MainWindow(QMainWindow):
             return False
         ed.file_path = path
         ed.highlighter.set_language(language_for(path))
+        ed.set_fold_style_for(path)
         return self._write(ed, path)
 
     def _write(self, ed: ColumnEditor, path: str) -> bool:
@@ -332,6 +335,27 @@ class MainWindow(QMainWindow):
         self.act_macro_save = self._act("儲存目前巨集(&S)...", self.save_current_macro)
         self.act_macro_manage = self._act("管理巨集(&G)...", self.manage_macros)
 
+        # 程式碼摺疊（SRS-003 F-FD-*）
+        self.act_fold_toggle = self._act(
+            "摺疊 / 展開目前區塊(&F)",
+            lambda: self._fold_call("fold_toggle"),
+            "Ctrl+Alt+F",
+        )
+        self.act_fold_all = self._act(
+            "全部摺疊(&A)", lambda: self._ed_call("perform", "fold_all"), "Alt+0"
+        )
+        self.act_unfold_all = self._act(
+            "全部展開(&E)", lambda: self._ed_call("perform", "unfold_all"), "Alt+Shift+0"
+        )
+        self.act_fold_levels = []
+        for level in range(1, 9):
+            act = self._act(
+                f"摺疊到第 {level} 層",
+                lambda _=False, n=level: self._ed_call("perform", "fold_level", level=n - 1),
+                f"Alt+{level}",
+            )
+            self.act_fold_levels.append(act)
+
         self.act_wrap = self._act("自動換行", self.toggle_wrap, checkable=True)
         self.act_whitespace = self._act("顯示空白與 TAB", self.toggle_whitespace, checkable=True)
         self.act_font = self._act("選擇字型(&F)...", self.choose_font)
@@ -353,6 +377,11 @@ class MainWindow(QMainWindow):
         ed = self.editor()
         if ed is not None:
             getattr(ed, name)(*args)
+
+    def _fold_call(self, command: str):
+        ed = self.editor()
+        if ed is not None and not ed.perform(command):
+            self.statusBar().showMessage("這一行沒有可摺疊的區塊", 2000)
 
     def _ed_call_normal(self, name, *args):
         """需要一般（非矩形）游標語意的動作，先離開欄模式再執行。"""
@@ -412,6 +441,14 @@ class MainWindow(QMainWindow):
             self.act_macro_manage,
         ):
             m.addSeparator() if a is None else m.addAction(a)
+
+        m = bar.addMenu("摺疊(&D)")
+        m.addAction(self.act_fold_toggle)
+        m.addAction(self.act_fold_all)
+        m.addAction(self.act_unfold_all)
+        levels = m.addMenu("摺疊到指定層級")
+        for act in self.act_fold_levels:
+            levels.addAction(act)
 
         m = bar.addMenu("欄模式(&B)")
         m.addAction(self.act_sticky)
@@ -476,6 +513,7 @@ class MainWindow(QMainWindow):
             self.act_column_editor,
             None,
             self.act_bm_toggle,
+            self.act_fold_toggle,
             self.act_macro_record,
             self.act_macro_play,
         ):
@@ -505,6 +543,8 @@ class MainWindow(QMainWindow):
             extras.append(f"巨集 {len(self.recorder.current)} 步")
         if len(ed.bookmarks):  # F-BM-10
             extras.append(f"書籤 {len(ed.bookmarks)}")
+        if len(ed.folds):  # F-FD-07
+            extras.append(f"已摺疊 {len(ed.folds)} 區塊")
         self.lbl_mode.setText("   ".join(extras))
         eol_name = doc_io.EOL_NAMES.get(ed.eol, ed.eol)
         self.lbl_enc.setText(f"{ed.encoding}   {eol_name}")
@@ -760,7 +800,14 @@ class MainWindow(QMainWindow):
             "• 錄的是編輯動作本身（含中文輸入、欄模式、書籤、尋找），"
             "不是鍵盤按鍵，所以換個位置重播也會正確<br>"
             "• 整段重播算一次 <b>Ctrl+Z</b>，效果不對可以一次還原<br>"
-            "• 巨集可命名儲存，下次開啟程式還在",
+            "• 巨集可命名儲存，下次開啟程式還在<br><br>"
+            "<b>程式碼摺疊</b><br>"
+            "• 點行號欄右側的 ▾ / ▸ 展開或摺疊<br>"
+            "• <b>Ctrl+Alt+F</b> 摺疊游標所在的區塊<br>"
+            "• <b>Alt+0</b> 全部摺疊，<b>Alt+Shift+0</b> 全部展開，"
+            "<b>Alt+1</b>~<b>Alt+8</b> 摺疊到指定層級<br>"
+            "• 層級判斷：C/Java/JS 系看大括號，其餘看縮排<br>"
+            "• 搜尋或跳至行號落在摺疊區塊內時會自動展開",
         )
 
     # ==================================================================

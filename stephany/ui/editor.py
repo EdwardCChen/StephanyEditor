@@ -31,6 +31,7 @@ from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit
 
 from ..core import block as B
 from ..core.bookmarks import BookmarkSet
+from ..core import folding as F
 from ..core.macro import MacroRecorder
 from ..core.widths import display_width, index_to_col, col_to_index
 from . import theme
@@ -67,8 +68,21 @@ class _DocLines:
         return self._doc.blockCount()
 
     def __getitem__(self, n: int) -> str:
+        # 必須在超出範圍時拋 IndexError：這個類別原本只有 __getitem__ 沒有
+        # __iter__，for/enumerate 會走舊式迭代協定、靠 IndexError 才知道要
+        # 停下來。回傳空字串會讓 enumerate() 永遠跑不完（摺疊偵測因此當掉）。
+        if n < 0:
+            n += len(self)
         blk = self._doc.findBlockByNumber(n)
-        return blk.text() if blk.isValid() else ""
+        if not blk.isValid():
+            raise IndexError(n)
+        return blk.text()
+
+    def __iter__(self):
+        block = self._doc.firstBlock()
+        while block.isValid():
+            yield block.text()
+            block = block.next()
 
 
 @dataclass
@@ -104,6 +118,11 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
         self.bookmarks = BookmarkSet()
         #: 預設每個編輯器各自一個；MainWindow 會換成全視窗共用的那一個
         self.recorder = MacroRecorder()
+
+        # --- 程式碼摺疊（SRS-003）---
+        self.folds = F.FoldState()
+        self._fold_style = F.INDENT
+        self._fold_regions: list[F.FoldRegion] | None = None  # D-03：快取
         self._prev_block_count = self.blockCount()
         self.document().contentsChange.connect(self._on_contents_change)
 
@@ -192,8 +211,11 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
     # 行號欄
     # ------------------------------------------------------------------
     def line_number_area_width(self) -> int:
+        from .linenumbers import BOOKMARK_COLUMN, FOLD_COLUMN
+
         digits = max(3, len(str(max(1, self.blockCount()))))
-        return 24 + int(self._cell_w * digits)  # 左側留給書籤圓點（F-BM-04）
+        # 左側書籤圓點 + 行號 + 右側摺疊箭號
+        return BOOKMARK_COLUMN + FOLD_COLUMN + 8 + int(self._cell_w * digits)
 
     def _update_gutter_width(self, *_):
         self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
@@ -359,6 +381,8 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
     # ------------------------------------------------------------------
     def paintEvent(self, event):
         super().paintEvent(event)
+        if len(self.folds):
+            self._paint_fold_hints(event)
         if not self._block_on:
             return
         region = self.region()
@@ -390,6 +414,43 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
                         QRect(int(xc), int(top), 2, int(height)), caret_color
                     )
             blk = blk.next()
+            top += height
+        painter.end()
+
+    def _paint_fold_hints(self, event):
+        """在摺疊起始行的行尾標出「⋯ n 行」（F-FD-06）。
+
+        沒有這個提示的話，摺疊起來的內容就只是憑空消失，使用者看不出
+        那一行後面還藏著東西。
+        """
+        painter = QPainter(self.viewport())
+        colour = theme.fold_marker_color(self.palette())
+        painter.setPen(colour)
+        font = painter.font()
+        font.setPointSizeF(max(6.0, font.pointSizeF() * 0.85))
+        painter.setFont(font)
+
+        regions = {r.start: r for r in self.fold_regions()}
+        block = self.firstVisibleBlock()
+        offset = self.contentOffset()
+        top = self.blockBoundingGeometry(block).translated(offset).top()
+        while block.isValid() and top <= event.rect().bottom():
+            height = self.blockBoundingRect(block).height()
+            number = block.blockNumber()
+            region = regions.get(number)
+            if block.isVisible() and region is not None and number in self.folds:
+                width = display_width(
+                    block.text(),
+                    tab_width=self.options.tab_width,
+                    ambiguous_wide=self.options.ambiguous_wide,
+                )
+                x = self._x_for_col(width) + self._cell_w
+                painter.drawText(
+                    QRect(int(x), int(top), 200, int(height)),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    f"⋯ {region.hidden_count} 行",
+                )
+            block = block.next()
             top += height
         painter.end()
 
@@ -625,6 +686,11 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
         count = self.blockCount()
         delta = count - self._prev_block_count
         self._prev_block_count = count
+        self._fold_regions = None  # D-03：內容變了，快取失效
+        if delta and len(self.folds):
+            self.folds.apply_line_delta(
+                self.document().findBlock(position).blockNumber(), delta
+            )
         if delta and len(self.bookmarks):
             start = self.document().findBlock(position).blockNumber()
             self.bookmarks.apply_line_delta(start, delta)
@@ -638,6 +704,8 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
     def setPlainText(self, text: str):
         """換掉整份文件內容時清掉書籤——它們標的是舊內容的行。"""
         self.bookmarks.clear()
+        self.folds.clear()
+        self._fold_regions = None
         super().setPlainText(text)
         self._prev_block_count = self.blockCount()
         self._notify_bookmarks()
@@ -652,6 +720,7 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
 
     def _goto_line(self, line: int):
         self.exit_block_mode()
+        self.ensure_line_visible(line)  # BR-FD-5
         blk = self.document().findBlockByNumber(line)
         if not blk.isValid():
             return
@@ -742,6 +811,122 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
     def _doc_lines(self):
         """給命令層取用的行陣列介面。"""
         return _DocLines(self.document())
+
+    # ------------------------------------------------------------------
+    # 程式碼摺疊（SRS-003 F-FD-*）
+    # ------------------------------------------------------------------
+    def set_fold_style_for(self, path: str | None):
+        """依副檔名決定用縮排還是大括號判斷層級（D-01）。"""
+        style = F.style_for(path)
+        if style != self._fold_style:
+            self._fold_style = style
+            self._fold_regions = None
+
+    def fold_regions(self) -> list[F.FoldRegion]:
+        """可摺疊區塊，結果快取到下次文件變動為止（D-03）。
+
+        行號欄每次重繪都要知道哪幾行可摺疊，大檔案若每次重算會明顯卡頓。
+        """
+        if self._fold_regions is None:
+            self._fold_regions = F.compute_regions(
+                self._doc_lines(), self._fold_style, self.options.tab_width
+            )
+            self.folds.sync_with(self._fold_regions)  # BR-FD-4
+        return self._fold_regions
+
+    def foldable_at(self, line: int) -> F.FoldRegion | None:
+        return F.region_starting_at(self.fold_regions(), line)
+
+    def toggle_fold(self, line: int | None = None) -> bool:
+        """F-FD-01 / F-FD-02。回傳 False 代表該行不是可摺疊區塊的起點。"""
+        if line is None:
+            line = self.textCursor().blockNumber()
+        regions = self.fold_regions()
+        region = F.region_starting_at(regions, line)
+        if region is None:
+            # 游標不在標頭行時，摺疊包住它的最內層區塊
+            region = F.innermost_region_containing(regions, line)
+            if region is None:
+                return False
+        self.folds.toggle(region.start)
+        self._apply_folds()
+        return True
+
+    def fold_all(self):
+        """F-FD-03"""
+        self.folds.replace([r.start for r in self.fold_regions()])
+        self._apply_folds()
+
+    def unfold_all(self):
+        """F-FD-04"""
+        self.folds.clear()
+        self._apply_folds()
+
+    def fold_to_level(self, level: int):
+        """F-FD-05"""
+        self.folds.fold_to_level(self.fold_regions(), level)
+        self._apply_folds()
+
+    def ensure_line_visible(self, line: int):
+        """展開所有藏住這一行的區塊（BR-FD-5 / D-05）。"""
+        if not len(self.folds):
+            return
+        hiding = F.regions_hiding(self.fold_regions(), line, self.folds)
+        if not hiding:
+            return
+        for region in hiding:
+            self.folds.remove(region.start)
+        self._apply_folds()
+
+    def _apply_folds(self):
+        """把摺疊狀態套到文件上。
+
+        用 Qt 原生的 QTextBlock.setVisible（D-02），捲軸、選取、搜尋都會
+        自動跳過隱藏行；自建虛擬視圖要重寫整套座標換算。
+        """
+        hidden = F.hidden_lines(self.fold_regions(), self.folds)
+        doc = self.document()
+        block = doc.firstBlock()
+        changed = False
+        while block.isValid():
+            visible = block.blockNumber() not in hidden
+            if block.isVisible() != visible:
+                block.setVisible(visible)
+                changed = True
+            block = block.next()
+        if changed:
+            doc.markContentsDirty(0, max(1, doc.characterCount()))
+            layout = doc.documentLayout()
+            if hasattr(layout, "requestUpdate"):
+                layout.requestUpdate()
+        self._keep_cursor_visible()
+        self.viewport().update()
+        self._gutter.update()
+        self.status_changed.emit()
+
+    def _keep_cursor_visible(self):
+        """游標不得停在隱藏行——否則會打字到看不見的地方（BR-FD-6）。"""
+        cursor = self.textCursor()
+        if cursor.block().isVisible():
+            return
+        hiding = F.regions_hiding(
+            self.fold_regions(), cursor.blockNumber(), self.folds
+        )
+        if not hiding:
+            return
+        block = self.document().findBlockByNumber(hiding[0].start)
+        cursor.setPosition(block.position())
+        self.setTextCursor(cursor)
+
+    def _next_visible_line(self, line: int, direction: int) -> int | None:
+        """往指定方向找下一個看得見的行（供上下移動跳過摺疊內容）。"""
+        doc = self.document()
+        line += direction
+        while 0 <= line < self.blockCount():
+            if doc.findBlockByNumber(line).isVisible():
+                return line
+            line += direction
+        return None
 
     # ------------------------------------------------------------------
     # 中文輸入法
