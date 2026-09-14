@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
         ed.file_path = path
         ed.encoding = "utf-8"
         ed.eol = "\n"
-        ed.highlighter = SimpleHighlighter(ed.document(), language_for(path))
+        ed.highlighter = SimpleHighlighter(ed.document(), language_for(path), ed.palette())
         ed.set_tab_width(self._tab_width)
         if self._font:
             ed.apply_font(QFont(self._font))

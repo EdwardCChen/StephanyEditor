@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QRegularExpression
+from PySide6.QtGui import QPalette
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
+
+from .theme import syntax_colors
 
 
 def _fmt(color: str, bold: bool = False, italic: bool = False) -> QTextCharFormat:
@@ -18,12 +21,21 @@ def _fmt(color: str, bold: bool = False, italic: bool = False) -> QTextCharForma
     return f
 
 
-KEYWORD = _fmt("#0033b3", bold=True)
-STRING = _fmt("#067d17")
-COMMENT = _fmt("#8c8c8c", italic=True)
-NUMBER = _fmt("#1750eb")
-FUNC = _fmt("#7a3e9d")
-TAG = _fmt("#0033b3", bold=True)
+def build_formats(palette) -> dict[str, QTextCharFormat]:
+    """依目前主題產生一組上色格式。
+
+    原本是模組層級的常數（寫死淺色主題的深藍、深綠），在深色背景上幾乎
+    看不見。改成依 palette 產生，並在主題切換時重建。
+    """
+    colors = syntax_colors(palette)
+    return {
+        "keyword": _fmt(colors["keyword"], bold=True),
+        "string": _fmt(colors["string"]),
+        "comment": _fmt(colors["comment"], italic=True),
+        "number": _fmt(colors["number"]),
+        "function": _fmt(colors["function"]),
+        "tag": _fmt(colors["tag"], bold=True),
+    }
 
 PY_KEYWORDS = """False None True and as assert async await break class continue def del
 elif else except finally for from global if import in is lambda nonlocal not or pass
@@ -99,14 +111,22 @@ def language_for(path: str | None) -> str | None:
 
 
 class SimpleHighlighter(QSyntaxHighlighter):
-    def __init__(self, document, language: str | None = None):
+    def __init__(self, document, language: str | None = None, palette=None):
         super().__init__(document)
         self._rules: list[tuple[QRegularExpression, QTextCharFormat]] = []
         self._block_start: QRegularExpression | None = None
         self._block_end: QRegularExpression | None = None
+        self._language = language
+        self._formats = build_formats(palette or QPalette())
         self.set_language(language)
 
+    def refresh_theme(self, palette):
+        """主題切換時重建格式並整份重上色。"""
+        self._formats = build_formats(palette)
+        self.set_language(self._language)
+
     def set_language(self, language: str | None):
+        self._language = language
         self._rules.clear()
         self._block_start = self._block_end = None
         spec = LANGUAGES.get(language or "")
@@ -116,24 +136,24 @@ class SimpleHighlighter(QSyntaxHighlighter):
 
         for kw in spec.get("keywords", []):
             self._rules.append(
-                (QRegularExpression(rf"\b{re.escape(kw)}\b"), KEYWORD)
+                (QRegularExpression(rf"\b{re.escape(kw)}\b"), self._formats["keyword"])
             )
         if spec.get("markup"):
-            self._rules.append((QRegularExpression(r"</?[\w:.-]+"), TAG))
-            self._rules.append((QRegularExpression(r"/?>"), TAG))
+            self._rules.append((QRegularExpression(r"</?[\w:.-]+"), self._formats["tag"]))
+            self._rules.append((QRegularExpression(r"/?>"), self._formats["tag"]))
         self._rules.append(
-            (QRegularExpression(r"\b\d+(\.\d+)?([eE][+-]?\d+)?\b"), NUMBER)
+            (QRegularExpression(r"\b\d+(\.\d+)?([eE][+-]?\d+)?\b"), self._formats["number"])
         )
         self._rules.append(
-            (QRegularExpression(r"\b[A-Za-z_]\w*(?=\s*\()"), FUNC)
+            (QRegularExpression(r"\b[A-Za-z_]\w*(?=\s*\()"), self._formats["function"])
         )
         for q in spec.get("strings", ()):
             esc = re.escape(q)
             self._rules.append(
-                (QRegularExpression(rf"{esc}(\\.|[^{esc}\\])*{esc}"), STRING)
+                (QRegularExpression(rf"{esc}(\\.|[^{esc}\\])*{esc}"), self._formats["string"])
             )
         if lc := spec.get("line_comment"):
-            self._rules.append((QRegularExpression(rf"{re.escape(lc)}[^\n]*"), COMMENT))
+            self._rules.append((QRegularExpression(rf"{re.escape(lc)}[^\n]*"), self._formats["comment"]))
         if bc := spec.get("block_comment"):
             self._block_start = QRegularExpression(re.escape(bc[0]))
             self._block_end = QRegularExpression(re.escape(bc[1]))
@@ -157,10 +177,10 @@ class SimpleHighlighter(QSyntaxHighlighter):
             m = self._block_end.match(text, start)
             if m.hasMatch():
                 length = m.capturedEnd() - start
-                self.setFormat(start, length, COMMENT)
+                self.setFormat(start, length, self._formats["comment"])
                 nxt = self._block_start.match(text, m.capturedEnd())
                 start = nxt.capturedStart() if nxt.hasMatch() else -1
             else:
                 self.setCurrentBlockState(1)
-                self.setFormat(start, len(text) - start, COMMENT)
+                self.setFormat(start, len(text) - start, self._formats["comment"])
                 break

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -33,6 +33,7 @@ from ..core import block as B
 from ..core.bookmarks import BookmarkSet
 from ..core.macro import MacroRecorder
 from ..core.widths import display_width, index_to_col, col_to_index
+from . import theme
 from .commands import EditorCommands
 
 BLOCK_MIME = "application/x-stephany-block"
@@ -205,6 +206,20 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
         if rect.contains(self.viewport().rect()):
             self._update_gutter_width()
 
+    def changeEvent(self, event):
+        """系統主題切換時重新取色（使用者中途切深色/淺色也會跟著變）。"""
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.PaletteChange,
+            QEvent.Type.ApplicationPaletteChange,
+        ):
+            self._highlight_current_line()
+            highlighter = getattr(self, "highlighter", None)
+            if highlighter is not None:
+                highlighter.refresh_theme(self.palette())
+            self._gutter.update()
+            self.viewport().update()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         cr = self.contentsRect()
@@ -214,7 +229,8 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
 
     def _highlight_current_line(self):
         sel = QTextEdit.ExtraSelection()
-        sel.format.setBackground(QColor("#fbf7e8"))
+        # 底色從系統配色推導。寫死淺色會讓深色主題下白字配近白底而看不見。
+        sel.format.setBackground(theme.current_line_color(self.palette()))
         sel.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
         cur = self.textCursor()
         cur.clearSelection()
@@ -350,7 +366,7 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
         fill = QColor(self.palette().highlight().color())
         fill.setAlpha(90)
         edge = QColor(self.palette().highlight().color())
-        caret_color = QColor("#d1322a")
+        caret_color = theme.block_caret_color(self.palette())
 
         x1 = self._x_for_col(region.left)
         x2 = self._x_for_col(region.right)

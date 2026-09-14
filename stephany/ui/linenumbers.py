@@ -6,6 +6,8 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget
 
+from . import theme
+
 
 class LineNumberArea(QWidget):
     def __init__(self, editor):
@@ -18,9 +20,10 @@ class LineNumberArea(QWidget):
     def paintEvent(self, event):
         editor = self._editor
         painter = QPainter(self)
-        painter.fillRect(event.rect(), QColor("#f0f0f0"))
+        palette = editor.palette()
+        painter.fillRect(event.rect(), theme.gutter_background(palette))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(QColor("#c8c8c8"))
+        painter.setPen(theme.gutter_border(palette))
         painter.drawLine(
             self.width() - 1, event.rect().top(), self.width() - 1, event.rect().bottom()
         )
@@ -37,14 +40,18 @@ class LineNumberArea(QWidget):
             if block.isVisible() and bottom >= event.rect().top():
                 # 書籤標記（F-BM-04）：行號左側的藍色圓點
                 if number in editor.bookmarks:
-                    painter.setBrush(QColor("#1a73e8"))
+                    painter.setBrush(theme.bookmark_color(palette))
                     painter.setPen(Qt.PenStyle.NoPen)
                     radius = max(3, height // 5)
                     painter.drawEllipse(
                         4, int(top) + (height - radius * 2) // 2, radius * 2, radius * 2
                     )
                     painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QColor("#0a66c2") if number == current else QColor("#808080"))
+                painter.setPen(
+                    theme.gutter_current_text(palette)
+                    if number == current
+                    else theme.gutter_text(palette)
+                )
                 painter.drawText(
                     QRect(0, int(top), self.width() - 6, height),
                     Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
