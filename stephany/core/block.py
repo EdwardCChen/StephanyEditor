@@ -1,3 +1,19 @@
+# Stephany Editor — 支援中文欄（直行）模式的文字編輯器
+# Copyright (C) 2026 Edward Chen
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """欄（直行）模式的純邏輯：矩形範圍的取出、插入、刪除、取代、貼上。
 
 這一層完全不依賴 Qt，輸入是「一串行字串」，輸出是「每行要做什麼修改」

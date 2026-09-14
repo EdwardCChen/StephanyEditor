@@ -1,3 +1,19 @@
+# Stephany Editor — 支援中文欄（直行）模式的文字編輯器
+# Copyright (C) 2026 Edward Chen
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """主視窗：分頁、選單、工具列、狀態列。"""
 
 from __future__ import annotations
@@ -372,6 +388,7 @@ class MainWindow(QMainWindow):
             tip="希臘字母、℃、※ 之類的字在不同字型寬度不一，依實際顯示調整",
         )
         self.act_help = self._act("欄模式操作說明(&H)", self.show_help, "F1")
+        self.act_about = self._act("關於(&A)...", self.show_about)
 
     def _ed_call(self, name, *args):
         ed = self.editor()
@@ -457,6 +474,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(self.act_ambiguous)
         m.addAction(self.act_help)
+        m.addAction(self.act_about)
 
         m = bar.addMenu("檢視(&V)")
         m.addAction(self.act_wrap)
@@ -770,6 +788,29 @@ class MainWindow(QMainWindow):
     def manage_macros(self):
         """F-MC-05"""
         MacroManagerDialog(self, self.macro_store, self.play_macro_dialog).exec()
+
+    def show_about(self):
+        """關於對話框。
+
+        GPL 的慣例是互動式程式要讓使用者看得到授權聲明與原始碼取得方式，
+        所以版本、授權、專案位址都放在這裡。
+        """
+        from .. import __version__
+
+        QMessageBox.about(
+            self,
+            f"關於 {APP_NAME}",
+            f"<h3>{APP_NAME} {__version__}</h3>"
+            "<p>支援中文欄（直行）模式的文字編輯器。</p>"
+            "<p>Copyright © 2026 Edward Chen</p>"
+            "<p>本程式為自由軟體，依 GNU 通用公共授權條款第三版"
+            "（或您可選擇的任何更新版本）散布。<br>"
+            "本程式不附帶任何擔保。詳見授權條款全文。</p>"
+            "<p><a href='https://www.gnu.org/licenses/gpl-3.0.html'>"
+            "GNU General Public License v3</a><br>"
+            "<a href='https://github.com/EdwardCChen/StephanyEditor'>"
+            "原始碼與問題回報</a></p>",
+        )
 
     def show_help(self):
         QMessageBox.information(

@@ -1,3 +1,19 @@
+# Stephany Editor — 支援中文欄（直行）模式的文字編輯器
+# Copyright (C) 2026 Edward Chen
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """桌面整合與打包中繼資料的一致性測試。
 
 對應 SRS-004 D-01、F-PK-*、BR-PK-1、NF-02。
@@ -178,3 +194,64 @@ def test_d_05_cjk_font_is_recommended_not_required():
 
 def test_package_is_architecture_independent():
     assert "Architecture: all" in BUILD_SCRIPT.read_text(encoding="utf-8")
+
+
+# -- 授權（GPL-3.0）---------------------------------------------------
+LICENSE_FILE = ROOT / "LICENSE"
+
+#: 每個原始檔開頭都要有的字串
+LICENSE_NOTICE = "GNU General Public License"
+
+
+def test_license_file_is_the_gpl_version_3():
+    text = LICENSE_FILE.read_text(encoding="utf-8")
+    assert "GNU GENERAL PUBLIC LICENSE" in text
+    assert "Version 3, 29 June 2007" in text
+
+
+def test_every_source_file_carries_the_licence_notice():
+    """GPL 慣例是每個檔案都要有授權聲明；新增檔案漏掉時這個測試會抓到。"""
+    missing = []
+    for path in sorted((ROOT / "stephany").rglob("*.py")):
+        head = path.read_text(encoding="utf-8")[:900]
+        if LICENSE_NOTICE not in head:
+            missing.append(str(path.relative_to(ROOT)))
+    assert not missing, f"缺少授權標頭：{missing}"
+
+
+def test_test_files_also_carry_the_licence_notice():
+    missing = []
+    for path in sorted((ROOT / "tests").glob("*.py")):
+        head = path.read_text(encoding="utf-8")[:900]
+        if LICENSE_NOTICE not in head:
+            missing.append(str(path.relative_to(ROOT)))
+    assert not missing, f"缺少授權標頭：{missing}"
+
+
+def test_source_headers_name_the_copyright_holder():
+    head = (ROOT / "stephany" / "__init__.py").read_text(encoding="utf-8")[:900]
+    assert "Copyright (C) 2026 Edward Chen" in head
+
+
+def test_shebang_stays_on_the_first_line_after_adding_headers():
+    """授權標頭必須加在 shebang 之後，否則腳本無法執行。"""
+    for path in (LAUNCHER, ROOT / "run.sh", BUILD_SCRIPT):
+        first = path.read_text(encoding="utf-8").splitlines()[0]
+        assert first.startswith("#!"), path
+
+
+def test_package_copyright_declares_gpl_3_plus():
+    script = BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert "License: GPL-3+" in script
+
+
+def test_package_copyright_references_the_system_licence_text():
+    """Debian 政策：常見授權引用 /usr/share/common-licenses，不重複內嵌。"""
+    script = BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert "/usr/share/common-licenses/GPL-3" in script
+
+
+def test_copyright_year_and_holder_are_single_sourced_in_the_build_script():
+    script = BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert 'COPYRIGHT_HOLDER="Edward Chen"' in script
+    assert 'COPYRIGHT_YEAR="2026"' in script

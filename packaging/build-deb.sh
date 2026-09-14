@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+# Stephany Editor — 支援中文欄（直行）模式的文字編輯器
+# Copyright (C) 2026 Edward Chen
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 # 建置 Stephany Editor 的 .deb 安裝檔（SRS-004 D-03、F-PK-07）。
 #
 # 刻意只用 dpkg-deb 直接組出二進位套件，不經 debhelper：
@@ -12,6 +28,8 @@ cd "$ROOT"
 PKG="stephany-editor"
 MAINTAINER="Edward Chen <edwardcchen@gmail.com>"
 HOMEPAGE="https://github.com/EdwardCChen/StephanyEditor"
+COPYRIGHT_HOLDER="Edward Chen"
+COPYRIGHT_YEAR="2026"
 
 # BR-PK-1：版本號只有一個來源
 VERSION="$(python3 -c "
@@ -59,16 +77,33 @@ find "$STAGE/usr/share/icons" -type f -exec chmod 0644 {} +
 # --- 文件 ---
 install -D -m 0644 README.md "$STAGE/usr/share/doc/$PKG/README.md"
 install -d "$STAGE/usr/share/doc/$PKG"
+# Debian 政策要求常見授權條款引用 /usr/share/common-licenses/ 下的全文，
+# 而不是每個套件各自重複內嵌一份 35 KB 的 GPL。
 cat > "$STAGE/usr/share/doc/$PKG/copyright" <<EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: Stephany Editor
 Source: $HOMEPAGE
 
 Files: *
-Copyright: $(date +%Y) Edward Chen
-License: 尚未宣告
- 本專案尚未選定授權條款。若要對外散布，請先於原始碼庫加入 LICENSE 檔
- 並同步更新這個檔案。
+Copyright: $COPYRIGHT_YEAR $COPYRIGHT_HOLDER
+License: GPL-3+
+
+License: GPL-3+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
 EOF
 printf '%s (%s) unstable; urgency=low\n\n  * 由 packaging/build-deb.sh 產生。變更請見 git 歷史：\n    %s\n\n -- %s  %s\n' \
     "$PKG" "$VERSION" "$HOMEPAGE" "$MAINTAINER" "$(date -R)" \

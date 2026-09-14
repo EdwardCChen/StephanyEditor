@@ -1,5 +1,7 @@
 # Stephany Editor
 
+[![授權](https://img.shields.io/badge/授權-GPL--3.0--or--later-blue)](LICENSE)
+
 Ubuntu 桌面上的文字編輯器，重點是**中文能正確使用的欄（直行）模式** ——
 也就是 Notepad++ 的 Column Mode，但把全形字的寬度處理對。
 
@@ -236,3 +238,17 @@ Qt 6 在 Wayland 下用 `desktopFileName()` 當 xdg-shell 的 `app_id`，桌面�
 
 規格文件在 [docs/](docs/)。程式碼註解、測試名稱與 commit message 都引用
 規格編號（如 `F-BM-09`、`BR-MC-3`、`D-01`），可以從任一處反查「為什麼這樣做」。
+
+## 授權
+
+GNU 通用公共授權條款第三版或（由您選擇的）任何更新版本 —— GPL-3.0-or-later。
+全文見 [LICENSE](LICENSE)。
+
+本程式為自由軟體：您可以自由使用、研究、修改與散布它。若您散布修改後的版本，
+必須同樣以 GPL-3.0 授權釋出並提供原始碼。本程式不附帶任何擔保。
+
+Copyright © 2026 Edward Chen
+
+每個原始檔都帶有授權標頭；`tests/test_packaging.py` 會驗證沒有檔案漏掉，
+deb 套件的 copyright 檔則依 Debian 政策引用 `/usr/share/common-licenses/GPL-3`
+而非重複內嵌全文。
