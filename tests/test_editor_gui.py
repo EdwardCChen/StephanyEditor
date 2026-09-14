@@ -10,19 +10,6 @@ from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from PySide6.QtGui import QInputMethodEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from stephany.ui.editor import ColumnEditor  # noqa: E402
-
-
-@pytest.fixture(scope="session")
-def app():
-    return QApplication.instance() or QApplication([])
-
-
-@pytest.fixture
-def editor(app):
-    ed = ColumnEditor()
-    ed.resize(800, 600)
-    return ed
 
 
 def text_of(ed):
