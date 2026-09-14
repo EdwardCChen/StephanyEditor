@@ -49,3 +49,25 @@ def editor(app):
     del ed
     app.processEvents()
     gc.collect()
+
+
+@pytest.fixture
+def window(app, tmp_path, monkeypatch):
+    """一個主視窗，設定檔與巨集檔都導到暫存目錄，不污染使用者的 ~/.config。"""
+    from PySide6.QtCore import QSettings
+
+    import stephany.ui.mainwindow as mw
+
+    QSettings.setPath(
+        QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(tmp_path)
+    )
+    monkeypatch.setattr(mw, "default_store_path", lambda: tmp_path / "macros.json")
+    win = mw.MainWindow([])
+    yield win
+    for index in range(win.tabs.count()):
+        win.tabs.widget(index).document().setModified(False)
+    win.close()
+    win.setParent(None)
+    del win
+    app.processEvents()
+    gc.collect()

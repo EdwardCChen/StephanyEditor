@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QRegularExpression, Qt
 from PySide6.QtGui import QTextCursor, QTextDocument
+from .commands import MacroError
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -100,27 +101,25 @@ class FindDialog(QDialog):
         return text
 
     def _search(self, backward=False) -> bool:
+        """走編輯器的命令層，尋找動作才會被巨集錄下來（SRS-002 F-MC-07）。"""
         editor = self._get_editor()
-        if editor is None:
+        if editor is None or not self.find_edit.text():
             return False
-        editor.exit_block_mode()
-        needle = self._needle()
-        if needle is None:
+        try:
+            found = editor.perform(
+                "find_next",
+                pattern=self.find_edit.text(),
+                case=self.cb_case.isChecked(),
+                word=self.cb_word.isChecked(),
+                regex=self.cb_regex.isChecked(),
+                backward=backward,
+                wrap=self.cb_wrap.isChecked(),
+            )
+        except MacroError as exc:
+            self.status.setText(str(exc))
             return False
-        doc = editor.document()
-        cursor = doc.find(needle, editor.textCursor(), self._flags(backward))
-        if cursor.isNull() and self.cb_wrap.isChecked():
-            start = QTextCursor(doc)
-            if backward:
-                start.movePosition(QTextCursor.MoveOperation.End)
-            cursor = doc.find(needle, start, self._flags(backward))
-        if cursor.isNull():
-            self.status.setText("找不到")
-            return False
-        editor.setTextCursor(cursor)
-        editor.ensureCursorVisible()
-        self.status.setText("")
-        return True
+        self.status.setText("" if found else "找不到")
+        return found
 
     def find_next(self):
         self._search(False)

@@ -278,7 +278,9 @@ class EditorCommands:
         word: bool = False,
         regex: bool = False,
         backward: bool = False,
+        wrap: bool = False,
     ) -> bool:
+        """尋找下一個。繞回（wrap）也在這一層處理，巨集才會錄成單一步驟。"""
         if not pattern:
             return False
         self.exit_block_mode()
@@ -300,6 +302,11 @@ class EditorCommands:
                 raise MacroError(f"正規表示式錯誤：{rx.errorString()}")
             needle = rx
         found = self.document().find(needle, self.textCursor(), flags)
+        if found.isNull() and wrap:
+            restart = QTextCursor(self.document())
+            if backward:
+                restart.movePosition(QTextCursor.MoveOperation.End)
+            found = self.document().find(needle, restart, flags)
         if found.isNull():
             return False
         self.setTextCursor(found)

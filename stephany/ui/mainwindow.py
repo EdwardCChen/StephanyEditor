@@ -8,7 +8,9 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence, QTextOption
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
+    QInputDialog,
     QFontDialog,
     QLabel,
     QMainWindow,
@@ -18,8 +20,10 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import document as doc_io
+from ..core.macro import MacroRecorder, MacroStore, default_store_path
 from .dialogs import ColumnEditorDialog, FindDialog, GoToDialog
 from .editor import ColumnEditor
+from .macro_dialogs import MacroManagerDialog, RunMacroDialog
 from .highlighter import LANGUAGES, SimpleHighlighter, language_for
 
 APP_NAME = "Stephany Editor"
@@ -35,6 +39,11 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("StephanyEditor", "StephanyEditor")
         self._find_dialog: FindDialog | None = None
 
+        # 巨集錄製器全視窗共用一個（跨分頁），與 Notepad++ 一致（SRS-002）
+        self.recorder = MacroRecorder()
+        self.macro_store = MacroStore(default_store_path())
+        self.macro_store.load()
+
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
@@ -48,6 +57,8 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_status_bar()
         self._restore_settings()
+        if self.macro_store.load_error:  # NF-03：損毀的巨集檔不擋啟動
+            self.statusBar().showMessage(self.macro_store.load_error, 8000)
 
         for path in paths or []:
             self.open_path(path)
@@ -74,6 +85,8 @@ class MainWindow(QMainWindow):
         )
         ed.status_changed.connect(self._update_status)
         ed.block_mode_changed.connect(lambda *_: self._update_status())
+        ed.bookmarks_changed.connect(self._update_status)
+        ed.recorder = self.recorder  # 所有分頁共用同一個錄製器
         ed.setWordWrapMode(QTextOption.WrapMode.NoWrap)
         index = self.tabs.addTab(ed, "未命名")
         self.tabs.setCurrentIndex(index)
@@ -294,6 +307,27 @@ class MainWindow(QMainWindow):
             "離開欄模式", lambda: self._ed_call("exit_block_mode"), "Esc"
         )
 
+        # 書籤（SRS-002 F-BM-*）
+        self.act_bm_toggle = self._act(
+            "切換書籤(&T)", lambda: self._ed_call("perform", "bookmark_toggle"), "Ctrl+F2"
+        )
+        self.act_bm_next = self._act("下一個書籤(&N)", self.goto_next_bookmark, "F2")
+        self.act_bm_prev = self._act("上一個書籤(&P)", self.goto_prev_bookmark, "Shift+F2")
+        self.act_bm_clear = self._act("清除全部書籤", lambda: self._ed_call("clear_bookmarks"))
+        self.act_bm_invert = self._act("反轉書籤", lambda: self._ed_call("invert_bookmarks"))
+        self.act_bm_copy = self._act("複製書籤行", lambda: self._bookmark_lines("copy"))
+        self.act_bm_cut = self._act("剪下書籤行", lambda: self._bookmark_lines("cut"))
+        self.act_bm_delete = self._act("刪除書籤行", lambda: self._bookmark_lines("delete"))
+
+        # 巨集（SRS-002 F-MC-*）
+        self.act_macro_record = self._act(
+            "開始錄製(&R)", self.toggle_recording, "Ctrl+Shift+R", checkable=True
+        )
+        self.act_macro_play = self._act("播放(&P)", self.play_current_macro, "Ctrl+Shift+P")
+        self.act_macro_play_many = self._act("播放多次(&M)...", self.play_macro_dialog)
+        self.act_macro_save = self._act("儲存目前巨集(&S)...", self.save_current_macro)
+        self.act_macro_manage = self._act("管理巨集(&G)...", self.manage_macros)
+
         self.act_wrap = self._act("自動換行", self.toggle_wrap, checkable=True)
         self.act_whitespace = self._act("顯示空白與 TAB", self.toggle_whitespace, checkable=True)
         self.act_font = self._act("選擇字型(&F)...", self.choose_font)
@@ -348,6 +382,32 @@ class MainWindow(QMainWindow):
         m = bar.addMenu("搜尋(&S)")
         m.addAction(self.act_find)
         m.addAction(self.act_goto)
+
+        m = bar.addMenu("書籤(&K)")
+        for a in (
+            self.act_bm_toggle,
+            self.act_bm_next,
+            self.act_bm_prev,
+            None,
+            self.act_bm_invert,
+            self.act_bm_clear,
+            None,
+            self.act_bm_copy,
+            self.act_bm_cut,
+            self.act_bm_delete,
+        ):
+            m.addSeparator() if a is None else m.addAction(a)
+
+        m = bar.addMenu("巨集(&M)")
+        for a in (
+            self.act_macro_record,
+            self.act_macro_play,
+            self.act_macro_play_many,
+            None,
+            self.act_macro_save,
+            self.act_macro_manage,
+        ):
+            m.addSeparator() if a is None else m.addAction(a)
 
         m = bar.addMenu("欄模式(&B)")
         m.addAction(self.act_sticky)
@@ -410,6 +470,10 @@ class MainWindow(QMainWindow):
             None,
             self.act_sticky,
             self.act_column_editor,
+            None,
+            self.act_bm_toggle,
+            self.act_macro_record,
+            self.act_macro_play,
         ):
             tb.addSeparator() if a is None else tb.addAction(a)
 
@@ -430,7 +494,14 @@ class MainWindow(QMainWindow):
             return
         self.lbl_pos.setText(ed.status_text())
         mode = "欄模式" if ed.block_mode else ("欄選取待命" if ed.sticky_column_mode else "一般模式")
-        self.lbl_mode.setText(mode)
+        extras = [mode]
+        if self.recorder.recording:  # F-MC-08
+            extras.append(f"● 錄製中（已錄 {self.recorder.pending_count} 步）")
+        elif self.recorder.current:
+            extras.append(f"巨集 {len(self.recorder.current)} 步")
+        if len(ed.bookmarks):  # F-BM-10
+            extras.append(f"書籤 {len(ed.bookmarks)}")
+        self.lbl_mode.setText("   ".join(extras))
         eol_name = doc_io.EOL_NAMES.get(ed.eol, ed.eol)
         self.lbl_enc.setText(f"{ed.encoding}   {eol_name}")
         self.lbl_warn.setText(
@@ -549,6 +620,118 @@ class MainWindow(QMainWindow):
         if ed is not None:
             ed.highlighter.set_language(name)
 
+    # ==================================================================
+    # 書籤（SRS-002 F-BM-*）
+    # ==================================================================
+    def goto_next_bookmark(self):
+        ed = self.editor()
+        if ed is not None and not ed.perform("bookmark_next"):
+            self.statusBar().showMessage("沒有書籤", 2000)  # BR-BM-4
+
+    def goto_prev_bookmark(self):
+        ed = self.editor()
+        if ed is not None and not ed.perform("bookmark_prev"):
+            self.statusBar().showMessage("沒有書籤", 2000)
+
+    def _bookmark_lines(self, action: str):
+        """F-BM-06 / 07 / 08"""
+        ed = self.editor()
+        if ed is None:
+            return
+        if not len(ed.bookmarks):
+            self.statusBar().showMessage("沒有書籤", 2000)
+            return
+        if action == "copy":
+            n = ed.copy_bookmarked_lines()
+            self.statusBar().showMessage(f"已複製 {n} 行", 3000)
+        elif action == "cut":
+            n = ed.cut_bookmarked_lines()
+            self.statusBar().showMessage(f"已剪下 {n} 行", 3000)
+        else:
+            n = ed.delete_bookmarked_lines()
+            self.statusBar().showMessage(f"已刪除 {n} 行", 3000)
+
+    # ==================================================================
+    # 巨集（SRS-002 F-MC-*）
+    # ==================================================================
+    def toggle_recording(self, checked: bool | None = None):
+        """F-MC-01"""
+        if self.recorder.recording:
+            macro = self.recorder.stop()
+            self.act_macro_record.setChecked(False)
+            self.act_macro_record.setText("開始錄製(&R)")
+            self.statusBar().showMessage(f"錄製完成，共 {len(macro)} 個步驟", 4000)
+        else:
+            self.recorder.start()
+            self.act_macro_record.setChecked(True)
+            self.act_macro_record.setText("停止錄製(&R)")
+            self.statusBar().showMessage("開始錄製巨集——接下來的編輯動作都會被記錄", 4000)
+        self._update_status()
+
+    def _run_macro(self, macro, count: int = 1, until_eof: bool = False):
+        ed = self.editor()
+        if ed is None:
+            return
+        if not macro or not len(macro):
+            self.statusBar().showMessage("目前沒有可播放的巨集", 3000)
+            return
+        done, error = ed.replay(macro, count=count, until_eof=until_eof)
+        if error:  # BR-MC-4
+            QMessageBox.warning(
+                self,
+                APP_NAME,
+                f"巨集在第 {done + 1} 輪停止：\n{error}\n\n已完成 {done} 輪，"
+                "可用 Ctrl+Z 一次還原。",
+            )
+        else:
+            self.statusBar().showMessage(f"巨集播放完成，共 {done} 輪", 4000)
+        self._update_status()
+
+    def play_current_macro(self):
+        """F-MC-02"""
+        if self.recorder.recording:  # BR-MC-5
+            self.statusBar().showMessage("錄製中無法播放，請先停止錄製", 3000)
+            return
+        self._run_macro(self.recorder.current)
+
+    def play_macro_dialog(self, macro=None):
+        """F-MC-03"""
+        if self.recorder.recording:
+            self.statusBar().showMessage("錄製中無法播放，請先停止錄製", 3000)
+            return
+        macro = macro or self.recorder.current
+        if not macro or not len(macro):
+            self.statusBar().showMessage("目前沒有可播放的巨集", 3000)
+            return
+        dialog = RunMacroDialog(self, macro)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._run_macro(macro, count=dialog.count, until_eof=dialog.until_eof)
+
+    def save_current_macro(self):
+        """F-MC-04"""
+        macro = self.recorder.current
+        if not macro or not len(macro):
+            self.statusBar().showMessage("目前沒有錄到任何步驟", 3000)
+            return
+        name, ok = QInputDialog.getText(self, "儲存巨集", "巨集名稱：")
+        name = name.strip()
+        if not ok or not name:
+            return
+        if name in self.macro_store.macros:
+            reply = QMessageBox.question(
+                self, "儲存巨集", f"已經有叫「{name}」的巨集，要覆蓋嗎？"
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self.macro_store.add(macro.renamed(name))
+        self.statusBar().showMessage(
+            f"已儲存巨集「{name}」到 {self.macro_store.path}", 5000
+        )
+
+    def manage_macros(self):
+        """F-MC-05"""
+        MacroManagerDialog(self, self.macro_store, self.play_macro_dialog).exec()
+
     def show_help(self):
         QMessageBox.information(
             self,
@@ -566,7 +749,19 @@ class MainWindow(QMainWindow):
             "• <b>Esc</b> 或按方向鍵 → 回到一般模式<br><br>"
             "<b>中文寬度</b><br>"
             "一個中文字 = 兩欄。矩形邊界切到半個中文字時，該字會變成兩個空白，"
-            "這樣刪除或插入後版面仍然對齊。",
+            "這樣刪除或插入後版面仍然對齊。<br><br>"
+            "<b>書籤</b><br>"
+            "• <b>Ctrl+F2</b> 切換目前行的書籤，行號欄會出現藍點<br>"
+            "• <b>F2</b> / <b>Shift+F2</b> 跳到下一個／上一個（到底會繞回）<br>"
+            "• 書籤選單可以一次複製、剪下或刪除所有書籤行<br>"
+            "• 在書籤上方插入或刪除文字時，書籤會跟著它那一行移動<br><br>"
+            "<b>巨集</b><br>"
+            "• <b>Ctrl+Shift+R</b> 開始／停止錄製，<b>Ctrl+Shift+P</b> 播放<br>"
+            "• 「播放多次」可以指定次數或一路跑到檔尾<br>"
+            "• 錄的是編輯動作本身（含中文輸入、欄模式、書籤、尋找），"
+            "不是鍵盤按鍵，所以換個位置重播也會正確<br>"
+            "• 整段重播算一次 <b>Ctrl+Z</b>，效果不對可以一次還原<br>"
+            "• 巨集可命名儲存，下次開啟程式還在",
         )
 
     # ==================================================================
