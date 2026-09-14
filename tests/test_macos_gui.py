@@ -61,29 +61,50 @@ def _ratio(family: str, style: str | None) -> float:
 
 
 # -- F-MAC-07：字型不變量 ---------------------------------------------
+def _installed_aligned_fonts() -> list[tuple[str, str | None]]:
+    return [entry for entry in platforms.ALIGNED_FONTS if _installed(*entry)]
+
+
 def test_every_aligned_font_really_is_double_width(app):
     """清單上標成「對得齊」的字型，就必須真的是中文兩倍寬。
 
-    這是整個欄模式的前提；清單寫錯的話畫面上的矩形會是鋸齒狀，而且
-    只有在那台機器剛好裝了那個字型時才會發生，很難事後追。
+    這是整個欄模式的前提；清單寫錯的話畫面上的矩形會是鋸齒狀，而且只有在
+    那台機器剛好裝了那個字型時才會發生，很難事後追。
+
+    量得到幾個就驗幾個——「這台機器裝了什麼字型」是環境條件，不是程式的錯，
+    所以一個都沒有時 skip 而不是紅燈。CI 會刻意裝一個，避免這裡永遠空轉。
     """
-    checked = []
-    for family, style in platforms.ALIGNED_FONTS:
-        if not _installed(family, style):
-            continue
-        checked.append((family, style, _ratio(family, style)))
-    for family, style, ratio in checked:
+    installed = _installed_aligned_fonts()
+    if not installed:
+        pytest.skip(
+            "這台機器一個 CJK 等寬字型都沒有，量不到。"
+            f"裝 {platforms.FONT_HINT} 其中之一再跑。"
+        )
+    for family, style in installed:
+        ratio = _ratio(family, style)
         assert abs(ratio - 2.0) < 0.05, f"{family} {style} 的比例是 {ratio:.3f}"
-    assert checked, "這台機器一個 CJK 等寬字型都沒有，測不到（請安裝後再跑）"
 
 
-@mac_only
-def test_f_mac_07_macos_picks_an_aligned_font_out_of_the_box(editor):
-    """macOS 不必先裝字型就該對得齊——靠的是系統內建的 Osaka Regular-Mono。"""
+def test_the_editor_picks_an_aligned_font_when_one_is_installed(editor):
+    """有對得齊的字型可用時，就不該退回會歪掉的那一組。"""
+    if not _installed_aligned_fonts():
+        pytest.skip("這台機器沒有對得齊的字型可挑")
     assert editor.font_is_aligned, (
         f"挑到的是 {editor.font().family()} / {editor.font().styleName()}，"
         "中文不是半形的兩倍寬"
     )
+
+
+@mac_only
+def test_f_mac_07_the_built_in_osaka_mono_is_double_width(app):
+    """F-MAC-07「不必先裝字型」靠的就是這個系統內建字型。
+
+    它是隨 macOS 安裝的字型資產，一般桌面安裝都有；精簡過的映像（例如 CI
+    runner）可能沒有，那種機器就退回狀態列警告 + 請使用者自己裝（見 FONT_HINT）。
+    """
+    if not _installed("Osaka", "Regular-Mono"):
+        pytest.skip("這個 macOS 沒有 Osaka Regular-Mono（精簡映像）")
+    assert abs(_ratio("Osaka", "Regular-Mono") - 2.0) < 0.05
 
 
 @mac_only

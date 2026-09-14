@@ -62,7 +62,7 @@ xattr -dr com.apple.quarantine "/Applications/Stephany Editor.app"
 ```
 
 需求：Python 3.10+。字型在 Ubuntu 上建議 `Noto Sans Mono CJK TC`
-（`sudo apt install fonts-noto-cjk`）；macOS 不必裝任何東西，程式會挑到系統
+（`sudo apt install fonts-noto-cjk`）；macOS 一般不必裝任何東西，程式會挑到系統
 內建的 `Osaka Regular-Mono`（理由見下面「中文寬度是怎麼處理的」）。
 
 ## 跨平台的快速鍵
@@ -158,6 +158,9 @@ CJK 字型遞補算圖的（寬度固定等於字級），而它們的半形寬�
 所以 macOS 上預設挑的是系統內建的 **Osaka Regular-Mono**（9~24pt 全部量測過，
 連 Osaka 本身沒有、要靠系統遞補的繁體字與全形標點也是準的）。注意它必須指名
 **樣式**：`Osaka` 的預設樣式比例是 1.5，只有 `Regular-Mono` 是 2.0。
+
+Osaka 是隨 macOS 安裝的字型資產，一般桌面安裝都有；少數精簡過的映像（例如
+CI runner）沒有，這時會退回 Menlo 並在狀態列出現紅字警告，自己裝一個就好。
 
 裝了 `Sarasa Mono TC` 或 `Noto Sans Mono CJK TC` 的話會優先用那些。
 
@@ -266,7 +269,7 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
 .venv/bin/python -m pytest tests -q
 ```
 
-320 個測試，涵蓋：
+321 個測試，涵蓋：
 
 - **寬度與矩形**：切到全形字、切到 TAB、短行不被撐長、剪下再貼回可還原
 - **書籤**：文件增減行時的平移、被刪除的行、繞回式跳轉、連續區間合併

@@ -55,7 +55,7 @@
 | **D-01** | `.app` 的 `CFBundleExecutable` 必須是 **Python 直譯器本體**，不得是 shell 啟動器 | 實測（見下）：用 shell 腳本 `exec` 外部 python 時，`NSBundle.mainBundle` 認不得這個 .app，選單列會顯示成腳本檔名；把直譯器本身放進 `Contents/MacOS/` 就正確顯示 `CFBundleName` |
 | **D-02** | venv 直接建在 `Contents/` 之下（`pyvenv.cfg` 與 `MacOS/` 同層），啟動點用 `sitecustomize.py` | 這是讓 D-01 成立的唯一低成本作法：直譯器位於 `Contents/MacOS/`，Python 找 venv 標記時看的是 `../pyvenv.cfg`，剛好就是 `Contents/pyvenv.cfg`。直譯器被 LaunchServices 無參數啟動，所以進入點只能掛在 `sitecustomize` 這個官方 hook 上 |
 | **D-03** | 不使用 py2app / PyInstaller，只用 `python3 -m venv` + `iconutil` + `hdiutil` | 與 SRS-004 D-03（不用 debhelper）同一個取捨：建構主機不必安裝額外打包工具，不需要 root，clone 下來就能建。代價是產出的 .app 相依建構時那個 Python 的標準函式庫，適合自用安裝而非對外散布 |
-| **D-04** | macOS 的預設字型是 **Osaka Regular-Mono**（系統內建） | 它是 macOS 唯一半形寬剛好等於字級一半的內建等寬字型。實測 9~24pt 全部滿足「中文 = 半形 × 2」，連 Osaka 本身沒有的繁體字、全形標點（由系統字型遞補）也是準的。使用者若已裝 `Sarasa Mono TC` 或 `Noto Sans Mono CJK TC`，優先用那些 |
+| **D-04** | macOS 的預設字型是 **Osaka Regular-Mono**（系統內建） | 它是 macOS 唯一半形寬剛好等於字級一半的內建等寬字型。實測 9~24pt 全部滿足「中文 = 半形 × 2」，連 Osaka 本身沒有的繁體字、全形標點（由系統字型遞補）也是準的。使用者若已裝 `Sarasa Mono TC` 或 `Noto Sans Mono CJK TC`，優先用那些。註：Osaka 是隨 macOS 安裝的字型資產，一般桌面安裝都有，但精簡過的映像（例如 GitHub 的 CI runner）沒有——那種機器就走 F-MAC-07 的退路 |
 | **D-05** | 快速鍵不另建一套 macOS 表；沿用 `Ctrl+X` 的可攜寫法讓 Qt 自動對映成 `⌘`，只對「壓不到」與「會誤打字」的鍵補**額外**快速鍵 | Qt 的 `QKeySequence("Ctrl+C")` 在 macOS 會解析成 `⌘C`（已實測）。維護兩套對映表必然會漂移；補充鍵是 `setShortcuts()` 多加一個，原本的鍵仍然有效，跨平台的肌肉記憶不會斷 |
 | **D-06** | 巨集與設定放 `~/Library/Application Support/StephanyEditor/`，並提供 `STEPHANY_CONFIG_DIR` 覆寫 | 遵循各平台自己的慣例；想在機器之間共用巨集的人用環境變數指到雲端同步目錄即可 |
 | **D-07** | Finder 開檔以 `QFileOpenEvent` 承接，與 argv 走同一條 `open_path()` | macOS 的檔案關聯本來就不經 argv；兩條入口收斂到同一個函式，行為才不會分岔 |
@@ -87,7 +87,7 @@
 | F-MAC-04 | 從 Finder 雙擊檔案、或把檔案拖到 Dock 圖示，能在既有視窗開新分頁 |
 | F-MAC-05 | 提供 `stephany-editor` 終端機指令（指向 .app 內的進入點） |
 | F-MAC-06 | 「關於」與「結束」出現在應用程式選單（`Stephany Editor` 選單）而非「檔案」選單 |
-| F-MAC-07 | macOS 預設字型須滿足「中文 = 半形 × 2」，開箱即用不必先裝字型 |
+| F-MAC-07 | macOS 預設字型須滿足「中文 = 半形 × 2」，一般桌面安裝不必先裝字型。系統沒有合格字型時（精簡過的映像）須退回等寬字型並於狀態列警告，不得默默歪掉 |
 | F-MAC-08 | 快速鍵以 `⌘` 為主修飾鍵（`⌘C`／`⌘S`／`⌘F` …），與 macOS 慣例一致 |
 | F-MAC-09 | 需要 `Fn` 才壓得到的 `F1`／`F2` 系列快速鍵，須另有不必 `Fn` 的替代鍵 |
 | F-MAC-10 | 建構腳本不需 root、不需安裝 py2app／PyInstaller／Xcode 專案 |

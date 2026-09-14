@@ -79,6 +79,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
+      - name: 安裝一個 CJK 等寬字型
+        # runner 的映像是精簡過的，沒有 macOS 桌面版才有的 Osaka 字型資產，
+        # 字型不變量的測試會因此 skip。裝一個確定是全形等寬的字型讓它真的跑得到。
+        # 裝不起來也不擋 CI——那個測試會自己 skip，不會變成假紅燈。
+        run: brew install --cask font-sarasa-gothic || echo "字型安裝失敗，字型量測測試會 skip"
+      - name: 這台 runner 看得到哪些偏好字型
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python - <<'PY'
+          import sys
+          from PySide6.QtGui import QFontDatabase, QGuiApplication
+          app = QGuiApplication(sys.argv[:1])
+          from stephany import platforms
+          for family, style in platforms.PREFERRED_FONTS:
+              have = family in QFontDatabase.families() and (
+                  style is None or style in QFontDatabase.styles(family)
+              )
+              print(f"{'有' if have else '無'}  {family} / {style or '預設樣式'}")
+          print("Osaka 的樣式：", QFontDatabase.styles("Osaka"))
+          PY
       - name: 執行全套測試
         env:
           QT_QPA_PLATFORM: offscreen
