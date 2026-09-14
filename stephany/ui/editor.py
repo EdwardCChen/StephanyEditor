@@ -30,7 +30,10 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit
 
 from ..core import block as B
+from ..core.bookmarks import BookmarkSet
+from ..core.macro import MacroRecorder
 from ..core.widths import display_width, index_to_col, col_to_index
+from .commands import EditorCommands
 
 BLOCK_MIME = "application/x-stephany-block"
 
@@ -75,11 +78,16 @@ class Pos:
     col: int = 0
 
 
-class ColumnEditor(QPlainTextEdit):
-    """主編輯器。"""
+class ColumnEditor(EditorCommands, QPlainTextEdit):
+    """主編輯器。
+
+    繼承 EditorCommands 取得語意命令層：所有編輯動作都經由 perform() 派送，
+    因此「使用者能操作的」與「巨集能重播的」永遠是同一組動作（SRS-002 D-01）。
+    """
 
     block_mode_changed = Signal(bool)
     status_changed = Signal()
+    bookmarks_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -89,6 +97,14 @@ class ColumnEditor(QPlainTextEdit):
         self.options = B.BlockOptions()
         self._cell_w = 8.0
         self._font_ok = True
+
+        # --- 書籤與巨集（SRS-002）---
+        #: 每個分頁獨立的書籤，不隨檔案存檔（D-06）
+        self.bookmarks = BookmarkSet()
+        #: 預設每個編輯器各自一個；MainWindow 會換成全視窗共用的那一個
+        self.recorder = MacroRecorder()
+        self._prev_block_count = self.blockCount()
+        self.document().contentsChange.connect(self._on_contents_change)
 
         # --- 欄模式狀態 ---
         self._block_on = False
@@ -176,7 +192,7 @@ class ColumnEditor(QPlainTextEdit):
     # ------------------------------------------------------------------
     def line_number_area_width(self) -> int:
         digits = max(3, len(str(max(1, self.blockCount()))))
-        return 14 + int(self._cell_w * digits)
+        return 24 + int(self._cell_w * digits)  # 左側留給書籤圓點（F-BM-04）
 
     def _update_gutter_width(self, *_):
         self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
@@ -449,7 +465,29 @@ class ColumnEditor(QPlainTextEdit):
         Qt.Key.Key_PageDown,
     }
 
+    #: (按鍵, 是否按 Ctrl) -> 命令層的游標移動名稱
+    _MOVE_BY_KEY = {
+        (Qt.Key.Key_Left, False): "left",
+        (Qt.Key.Key_Left, True): "word_left",
+        (Qt.Key.Key_Right, False): "right",
+        (Qt.Key.Key_Right, True): "word_right",
+        (Qt.Key.Key_Up, False): "up",
+        (Qt.Key.Key_Down, False): "down",
+        (Qt.Key.Key_Home, False): "home",
+        (Qt.Key.Key_Home, True): "doc_start",
+        (Qt.Key.Key_End, False): "end",
+        (Qt.Key.Key_End, True): "doc_end",
+        (Qt.Key.Key_PageUp, False): "page_up",
+        (Qt.Key.Key_PageDown, False): "page_down",
+    }
+
     def keyPressEvent(self, event: QKeyEvent):
+        """把按鍵翻成語意命令再交給 perform()。
+
+        走這一層而不是直接動文件，是為了讓每個編輯動作都自動具備可錄製性
+        （SRS-002 D-01 / F-MC-07）——新增功能時不會忘了接巨集。
+        無法對應到命令的按鍵才落回 QPlainTextEdit 的預設處理。
+        """
         mods = event.modifiers()
         alt = bool(mods & Qt.KeyboardModifier.AltModifier)
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
@@ -458,39 +496,54 @@ class ColumnEditor(QPlainTextEdit):
 
         # 從一般模式用 Alt+Shift+方向鍵直接開始欄選取
         if not self._block_on and alt and shift and key in self._NAV_KEYS:
-            cur = self.textCursor()
-            self.start_block_mode(cur.blockNumber(), self.caret_display_col())
+            self.perform("block_begin")
 
         if self._block_on and self._handle_block_key(event, key, alt, shift, ctrl):
             return
+
+        command = self._normal_command_for(event, key, ctrl, shift, alt)
+        if command is not None:
+            name, args = command
+            self.perform(name, **args)
+            return
         super().keyPressEvent(event)
 
-    def _handle_block_key(self, event, key, alt, shift, ctrl) -> bool:
-        region = self.region()
+    def _normal_command_for(self, event, key, ctrl, shift, alt):
+        """一般模式的按鍵 -> (命令名稱, 參數)。無對應時回傳 None。"""
+        if key == Qt.Key.Key_Backspace:
+            return ("delete_word_left" if ctrl else "delete_left", {})
+        if key == Qt.Key.Key_Delete:
+            return ("delete_word_right" if ctrl else "delete_right", {})
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not ctrl:
+            return ("newline", {})
+        if key in self._NAV_KEYS and not alt:
+            op = self._MOVE_BY_KEY.get((key, ctrl))
+            if op is not None:
+                return ("move", {"op": op, "select": shift})
+            return None
+        text = event.text()
+        if text and not ctrl and not alt and (text.isprintable() or text == "\t"):
+            return ("insert_text", {"text": text})
+        return None
 
+    def _handle_block_key(self, event, key, alt, shift, ctrl) -> bool:
+        """欄模式的按鍵。回傳 False 代表「請退回一般模式處理這個鍵」。"""
         if key == Qt.Key.Key_Escape:
-            self.exit_block_mode()
+            self.perform("block_end")
             return True
 
         if key in self._NAV_KEYS:
             if alt and shift:
                 self._extend_by_key(key)
                 return True
-            # 一般方向鍵：離開欄模式，回到正常游標移動
             self.exit_block_mode()
             return False
 
-        if key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
-            target = (
-                B.backspace_region(
-                    _DocLines(self.document()), region, options=self.options
-                )
-                if key == Qt.Key.Key_Backspace
-                else B.delete_region(
-                    _DocLines(self.document()), region, options=self.options
-                )
-            )
-            self._delete_region(target, collapse_left=(key == Qt.Key.Key_Backspace))
+        if key == Qt.Key.Key_Backspace:
+            self.perform("block_delete", direction="left")
+            return True
+        if key == Qt.Key.Key_Delete:
+            self.perform("block_delete", direction="right")
             return True
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -498,51 +551,181 @@ class ColumnEditor(QPlainTextEdit):
             return False
 
         if ctrl and key == Qt.Key.Key_C:
-            self.copy()
+            self.perform("copy")
             return True
         if ctrl and key == Qt.Key.Key_X:
-            self.cut()
+            self.perform("cut")
             return True
         if ctrl and key == Qt.Key.Key_V:
-            self.paste()
+            self.perform("paste")
             return True
         if ctrl and key in (Qt.Key.Key_Z, Qt.Key.Key_Y, Qt.Key.Key_A):
             self.exit_block_mode()
             return False
 
         if key == Qt.Key.Key_Tab:
-            self.block_insert_text(" " * self.options.tab_width)
+            self.perform("block_insert", text=" " * self.options.tab_width)
             return True
 
         text = event.text()
         if text and text.isprintable() and not ctrl:
-            self.block_insert_text(text)
+            self.perform("block_insert", text=text)
             return True
         return False
 
     def _extend_by_key(self, key):
-        line, col = self._caret.line, self._caret.col
-        if key == Qt.Key.Key_Left:
-            col = max(0, col - 1)
-        elif key == Qt.Key.Key_Right:
-            col += 1
-        elif key == Qt.Key.Key_Up:
-            line -= 1
-        elif key == Qt.Key.Key_Down:
-            line += 1
+        """Alt+Shift+方向鍵展開矩形。
+
+        一律錄成相對位移（BR-MC-6），重播時才能套用到別的位置；
+        Home/End 的位移與該行內容相關，改錄成 edge 命令而不是欄位差值。
+        """
+        rows = max(1, self.viewport().height() // max(1, self.fontMetrics().height()))
+        deltas = {
+            Qt.Key.Key_Left: (0, -1),
+            Qt.Key.Key_Right: (0, 1),
+            Qt.Key.Key_Up: (-1, 0),
+            Qt.Key.Key_Down: (1, 0),
+            Qt.Key.Key_PageUp: (-rows, 0),
+            Qt.Key.Key_PageDown: (rows, 0),
+        }
+        if key in deltas:
+            dline, dcol = deltas[key]
+            self.perform("block_extend", dline=dline, dcol=dcol)
         elif key == Qt.Key.Key_Home:
-            col = 0
+            self.perform("block_extend_edge", edge="home")
         elif key == Qt.Key.Key_End:
-            col = display_width(
-                self._line_text(line),
-                tab_width=self.options.tab_width,
-                ambiguous_wide=self.options.ambiguous_wide,
-            )
-        elif key == Qt.Key.Key_PageUp:
-            line -= max(1, self.viewport().height() // max(1, self.fontMetrics().height()))
-        elif key == Qt.Key.Key_PageDown:
-            line += max(1, self.viewport().height() // max(1, self.fontMetrics().height()))
-        self._move_caret(line, col, extend=True)
+            self.perform("block_extend_edge", edge="end")
+
+    # ------------------------------------------------------------------
+    # 書籤（SRS-002 F-BM-*）
+    # ------------------------------------------------------------------
+    def _on_contents_change(self, position: int, removed: int, added: int):
+        """文件增減行時平移書籤（BR-BM-1、BR-BM-2）。
+
+        Qt 的 contentsChange 給的是「字元」增減，換算不出行數，所以改用
+        blockCount 的前後差值；訊號發出時文件已更新，findBlock(position)
+        取到的就是變動起點所在的那一行。
+        """
+        count = self.blockCount()
+        delta = count - self._prev_block_count
+        self._prev_block_count = count
+        if delta and len(self.bookmarks):
+            start = self.document().findBlock(position).blockNumber()
+            self.bookmarks.apply_line_delta(start, delta)
+            self._notify_bookmarks()
+
+    def _notify_bookmarks(self):
+        self._gutter.update()
+        self.bookmarks_changed.emit()
+        self.status_changed.emit()
+
+    def setPlainText(self, text: str):
+        """換掉整份文件內容時清掉書籤——它們標的是舊內容的行。"""
+        self.bookmarks.clear()
+        super().setPlainText(text)
+        self._prev_block_count = self.blockCount()
+        self._notify_bookmarks()
+
+    def toggle_bookmark(self, line: int | None = None) -> bool:
+        """F-BM-01"""
+        if line is None:
+            line = self.textCursor().blockNumber()
+        state = self.bookmarks.toggle(line)
+        self._notify_bookmarks()
+        return state
+
+    def _goto_line(self, line: int):
+        self.exit_block_mode()
+        blk = self.document().findBlockByNumber(line)
+        if not blk.isValid():
+            return
+        cur = self.textCursor()
+        cur.setPosition(blk.position())
+        self.setTextCursor(cur)
+        self.ensureCursorVisible()
+
+    def goto_next_bookmark(self) -> bool:
+        """F-BM-02。沒有書籤時回傳 False（BR-BM-4）。"""
+        self.bookmarks.clamp(self.blockCount())
+        target = self.bookmarks.next_after(self.textCursor().blockNumber())
+        if target is None:
+            return False
+        self._goto_line(target)
+        return True
+
+    def goto_prev_bookmark(self) -> bool:
+        """F-BM-03"""
+        self.bookmarks.clamp(self.blockCount())
+        target = self.bookmarks.prev_before(self.textCursor().blockNumber())
+        if target is None:
+            return False
+        self._goto_line(target)
+        return True
+
+    def clear_bookmarks(self):
+        """F-BM-05"""
+        self.bookmarks.clear()
+        self._notify_bookmarks()
+
+    def invert_bookmarks(self):
+        """F-BM-09"""
+        self.bookmarks.invert(self.blockCount())
+        self._notify_bookmarks()
+
+    def bookmarked_lines_text(self) -> str:
+        """F-BM-06：所有書籤行的文字，依行號由小到大。"""
+        self.bookmarks.clamp(self.blockCount())
+        return "\n".join(self._line_text(n) for n in self.bookmarks)
+
+    def copy_bookmarked_lines(self) -> int:
+        """F-BM-06"""
+        text = self.bookmarked_lines_text()
+        if not text and not len(self.bookmarks):
+            return 0
+        QApplication.clipboard().setText(text)
+        return len(self.bookmarks)
+
+    def delete_bookmarked_lines(self) -> int:
+        """F-BM-08：刪除所有書籤行，整批包在同一個 undo 區塊。"""
+        self.bookmarks.clamp(self.blockCount())
+        ranges = self.bookmarks.contiguous_ranges()  # 由大到小，從尾端刪不位移
+        if not ranges:
+            return 0
+        removed = sum(end - start + 1 for start, end in ranges)
+        doc = self.document()
+        cur = QTextCursor(doc)
+        cur.beginEditBlock()
+        try:
+            for start, end in ranges:
+                first = doc.findBlockByNumber(start)
+                last = doc.findBlockByNumber(end)
+                if not first.isValid() or not last.isValid():
+                    continue
+                c = QTextCursor(doc)
+                c.setPosition(first.position())
+                end_pos = last.position() + last.length() - 1
+                if last.next().isValid():
+                    end_pos += 1  # 連同該行的換行字元一起刪掉
+                elif first.previous().isValid():
+                    c.setPosition(first.position() - 1)  # 最後一行改吃前面的換行
+                c.setPosition(end_pos, QTextCursor.MoveMode.KeepAnchor)
+                c.removeSelectedText()
+        finally:
+            cur.endEditBlock()
+        self.bookmarks.clear()
+        self._notify_bookmarks()
+        return removed
+
+    def cut_bookmarked_lines(self) -> int:
+        """F-BM-07"""
+        count = self.copy_bookmarked_lines()
+        if count:
+            self.delete_bookmarked_lines()
+        return count
+
+    def _doc_lines(self):
+        """給命令層取用的行陣列介面。"""
+        return _DocLines(self.document())
 
     # ------------------------------------------------------------------
     # 中文輸入法
@@ -555,6 +738,9 @@ class ColumnEditor(QPlainTextEdit):
         """
         if not self._block_on:
             super().inputMethodEvent(event)
+            # 一般模式的送出交給 Qt 原生插入，這裡只補記一筆給巨集（F-MC-07）
+            if event.commitString() and self.recorder.recording:
+                self.recorder.record("insert_text", text=event.commitString())
             return
         commit = event.commitString()
         preedit = event.preeditString()
