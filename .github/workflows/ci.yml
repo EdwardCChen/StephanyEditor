@@ -39,7 +39,7 @@ jobs:
             tests/test_packaging.py \
             tests/test_packaging_macos.py \
             tests/test_platform.py \
-            -q
+            -q -rs
 
   gui:
     name: GUI 層（offscreen）
@@ -63,7 +63,7 @@ jobs:
       - name: 執行全套測試
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q -rs
 
   macos:
     # SRS-005 NF-03：macOS 的差異（字型度量、⌘ 對映、選單角色）只有在真的
@@ -103,7 +103,7 @@ jobs:
       - name: 執行全套測試
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q -rs
 
   macos-app:
     # F-MAC-10：建構腳本必須在乾淨的 macOS 上、沒有額外打包工具、不用 root
