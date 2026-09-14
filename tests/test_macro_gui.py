@@ -154,8 +154,10 @@ def test_until_eof_processes_every_line(editor):
         ],
     )
     done, error = editor.replay(macro, until_eof=True)
-    assert editor.toPlainText().split("\n")[:3] == ["※甲", "※乙", "※丙"]
-    assert done >= 3
+    # 最後一輪會在「游標下移」碰到檔尾——那是停止條件，不是錯誤（不該跳警告）
+    assert error is None
+    assert done == 4
+    assert editor.toPlainText().split("\n") == ["※甲", "※乙", "※丙", "※丁"]
 
 
 # -- 欄模式（BR-MC-6：相對位移）---------------------------------------
@@ -237,3 +239,13 @@ def test_find_next_macro_drives_a_search_and_edit_loop(editor):
     done, error = editor.replay(macro, count=3)
     assert (done, error) == (3, None)
     assert editor.toPlainText() == "鳥 貓 鳥 貓 鳥"
+
+
+def test_boundary_stop_is_an_error_in_fixed_count_mode(editor):
+    """指定次數模式下跑不完就是失敗——使用者明確要求 N 輪（BR-MC-4）。"""
+    editor.setPlainText("甲\n乙")
+    goto(editor, 0)
+    macro = Macro("x", [MacroStep("move", {"op": "down"})])
+    done, error = editor.replay(macro, count=5)
+    assert done == 1
+    assert "沒有可執行的對象" in error

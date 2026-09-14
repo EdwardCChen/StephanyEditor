@@ -37,6 +37,15 @@ class MacroError(RuntimeError):
     """重播中某個步驟失敗（BR-MC-4）。"""
 
 
+class _BoundaryStop(Exception):
+    """「跑到檔尾」模式下某步驟已無對象可做——這是正常結束，不是錯誤。
+
+    例如「每行加註記」的巨集最後一輪會在「游標下移一行」處碰到最後一行。
+    在指定次數模式下這算失敗（使用者明確要求跑 N 輪卻跑不完），
+    但在跑到檔尾模式下它正是停止條件本身。
+    """
+
+
 class EditorCommands:
     """給 ColumnEditor 混入的命令層。
 
@@ -347,15 +356,22 @@ class EditorCommands:
                 elif iteration >= count:
                     break
                 previous = self._replay_state()
-                for index, step in enumerate(macro.steps, start=1):
-                    try:
-                        ok = self.perform(step.command, record=False, **step.args)
-                    except MacroError as exc:
-                        raise MacroError(f"第 {index} 步 {step.describe()}：{exc}")
-                    if not ok:
-                        raise MacroError(
-                            f"第 {index} 步 {step.describe()} 沒有可執行的對象，已停止"
-                        )
+                try:
+                    for index, step in enumerate(macro.steps, start=1):
+                        try:
+                            ok = self.perform(step.command, record=False, **step.args)
+                        except MacroError as exc:
+                            raise MacroError(f"第 {index} 步 {step.describe()}：{exc}")
+                        if not ok:
+                            if until_eof:
+                                raise _BoundaryStop()
+                            raise MacroError(
+                                f"第 {index} 步 {step.describe()} 沒有可執行的對象，已停止"
+                            )
+                except _BoundaryStop:
+                    # 這一輪已經做掉了前面幾步，算它完成
+                    done = iteration + 1
+                    break
                 iteration += 1
                 done = iteration
         except MacroError as exc:
