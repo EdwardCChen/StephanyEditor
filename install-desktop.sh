@@ -20,8 +20,12 @@ chmod 0644 "$DEST"
 
 command -v update-desktop-database >/dev/null 2>&1 &&
     update-desktop-database -q "$HOME/.local/share/applications" || true
-command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+# 使用者層級的 hicolor 目錄沒有 index.theme，gtk-update-icon-cache 會報錯。
+# 圖示查找本來就會跨 XDG_DATA_DIRS 合併，快取有沒有建都找得到，所以略過即可。
+if [ -f "$HOME/.local/share/icons/hicolor/index.theme" ] &&
+   command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -q -f "$HOME/.local/share/icons/hicolor" || true
+fi
 
 echo "已安裝：$DEST"
 echo "圖示：  $ICON_DIR/$APP_ID.svg"
