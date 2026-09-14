@@ -1,0 +1,89 @@
+# Stephany Editor — 支援中文欄（直行）模式的文字編輯器
+# Copyright (C) 2026 Edward Chen
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+"""macOS .app 的進入點（SRS-005 D-02）。
+
+由 `packaging/build-app.sh` 安裝成 bundle 內 site-packages 的
+`sitecustomize.py`。
+
+為什麼是 `sitecustomize` 這麼奇怪的地方：`Contents/MacOS/` 底下那個執行檔
+必須是 **Python 直譯器本體**，NSBundle 才認得這個 .app（D-01 的實測）。
+而 LaunchServices 啟動它時不會給任何參數，直譯器也就不知道要跑哪支程式——
+`sitecustomize` 是標準函式庫官方保證會自動載入的 hook，是唯一不必改直譯器
+就能掛上進入點的位置。
+
+接管條件有兩個，缺一不可：
+
+1. 直譯器是以 bundle 的執行檔名稱被啟動（建構過程中用 `Contents/bin/python3`
+   跑 pip 時就不會誤觸發）。
+2. 命令列上沒有其他參數——也就是「由 LaunchServices 啟動」的情形。
+
+第 2 點是必要的：直譯器會**先**解析自己的命令列參數才輪到 `site`，所以
+`stephany-editor 檔案.txt` 對它來說是「執行這支腳本」、`--version` 是
+「印出 Python 版本」，我們攔不到也改不了。終端機用法因此走另一條路——
+`Contents/Resources/bin/stephany-editor` 這個包裝腳本用 `-m stephany` 呼叫
+同一個直譯器（參數就完整交給 argparse 了），而且因為 exec 的仍是
+`Contents/MacOS/` 裡的執行檔，NSBundle 認得的還是這個 .app（D-01）。
+"""
+
+import os
+import sys
+
+APP_ID = "stephany-editor"
+
+
+def _launched_by_the_dock() -> bool:
+    """是不是「沒有帶任何參數」被啟動的。
+
+    `-psn_0_12345` 是舊版 LaunchServices 會塞的程序序號，不算使用者參數。
+    """
+    if os.path.basename(sys.executable) != APP_ID:
+        return False
+    extra = [a for a in sys.orig_argv[1:] if not a.startswith("-psn_")]
+    return not extra
+
+
+def _log_crash(exc: BaseException) -> None:
+    """從 Finder 啟動時沒有終端機，例外訊息會不見，所以另外寫一份。"""
+    import traceback
+
+    path = os.path.expanduser(f"~/Library/Logs/{APP_ID}.log")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            traceback.print_exception(exc, file=fh)
+    except OSError:
+        pass
+    traceback.print_exception(exc, file=sys.stderr)
+
+
+if _launched_by_the_dock():
+    sys.path.insert(0, os.path.join(sys.prefix, "Resources", "app"))
+    try:
+        from stephany.__main__ import main
+
+        _code = main()
+    except BaseException as _exc:  # noqa: BLE001  什麼都別讓它默默消失
+        if isinstance(_exc, SystemExit):
+            _code = _exc.code if isinstance(_exc.code, int) else 0
+        else:
+            _log_crash(_exc)
+            _code = 1
+    # 這裡是直譯器啟動流程的中途，正常 return 回去會接著跑互動式 REPL，
+    # 所以直接結束程序。Qt 的事件迴圈這時已經收乾淨了。
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(_code or 0)

@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import platforms
 from ..core import document as doc_io
 from ..core.macro import MacroRecorder, MacroStore, default_store_path
 from .dialogs import ColumnEditorDialog, FindDialog, GoToDialog
@@ -43,6 +44,27 @@ from .macro_dialogs import MacroManagerDialog, RunMacroDialog
 from .highlighter import LANGUAGES, SimpleHighlighter, language_for
 
 APP_NAME = "Stephany Editor"
+
+
+def _keys(sequence: str) -> str:
+    """把可攜式快速鍵字串轉成本平台的顯示字樣。
+
+    說明文字若寫死 `Ctrl+Shift+B`，macOS 使用者看到的會是一組他按不出來的鍵
+    ——實際綁上去的是 `⇧⌘B`（Qt 會自動對映，SRS-005 D-05）。一律讓 Qt 自己
+    翻成原生字樣，說明與實際綁定就不會分岔。
+    """
+    return QKeySequence(sequence).toString(QKeySequence.SequenceFormat.NativeText)
+
+
+#: 平台專屬替代鍵在說明視窗裡的名稱。鍵與 `platforms.EXTRA_SHORTCUTS` 相同，
+#: 說明才不會跟實際綁定的鍵各說各話（SRS-005 BR-MAC-4）。
+EXTRA_SHORTCUT_LABELS = {
+    "help": "這份說明",
+    "bookmark_toggle": "切換書籤",
+    "bookmark_next": "下一個書籤",
+    "bookmark_prev": "上一個書籤",
+    "column_editor": "欄位編輯器",
+}
 
 
 class MainWindow(QMainWindow):
@@ -279,11 +301,20 @@ class MainWindow(QMainWindow):
     # ==================================================================
     # 動作與選單
     # ==================================================================
-    def _act(self, text, slot, shortcut=None, checkable=False, tip=None):
+    def _act(self, text, slot, shortcut=None, checkable=False, tip=None, action_id=None):
+        """建一個動作。
+
+        `action_id` 給的是 SRS-005 D-05 那張「平台專屬替代鍵」表的索引：
+        跨平台的鍵永遠保留，macOS 只是多綁一個按得到的鍵（BR-MAC-4）。
+        """
         a = QAction(text, self)
         a.triggered.connect(slot)
-        if shortcut:
-            a.setShortcut(QKeySequence(shortcut))
+        sequences = [QKeySequence(shortcut)] if shortcut else []
+        sequences += [
+            QKeySequence(s) for s in platforms.extra_shortcuts(action_id or "")
+        ]
+        if sequences:
+            a.setShortcuts(sequences)
         a.setCheckable(checkable)
         if tip:
             a.setToolTip(tip)
@@ -302,6 +333,10 @@ class MainWindow(QMainWindow):
 
         self.act_undo = self._act("復原", lambda: self._ed_call_normal("undo"), "Ctrl+Z")
         self.act_redo = self._act("取消復原", lambda: self._ed_call_normal("redo"), "Ctrl+Y")
+        # macOS 的重做是 ⇧⌘Z，Windows/Linux 是 Ctrl+Y；兩個都留著
+        self.act_redo.setShortcuts(
+            [QKeySequence("Ctrl+Y"), QKeySequence.StandardKey.Redo]
+        )
         self.act_cut = self._act("剪下", lambda: self._ed_call("cut"), "Ctrl+X")
         self.act_copy = self._act("複製", lambda: self._ed_call("copy"), "Ctrl+C")
         self.act_paste = self._act("貼上", lambda: self._ed_call("paste"), "Ctrl+V")
@@ -317,10 +352,11 @@ class MainWindow(QMainWindow):
             self.toggle_sticky,
             "Ctrl+Shift+B",
             checkable=True,
-            tip="開啟後直接拖曳滑鼠就是矩形選取，不必按住 Alt",
+            tip=f"開啟後直接拖曳滑鼠就是矩形選取，不必按住 {platforms.mod('Alt')}",
         )
         self.act_column_editor = self._act(
-            "欄位編輯器(&C)...", self.show_column_editor, "Alt+C"
+            "欄位編輯器(&C)...", self.show_column_editor, "Alt+C",
+            action_id="column_editor",
         )
         self.act_exit_block = self._act(
             "離開欄模式", lambda: self._ed_call("exit_block_mode"), "Esc"
@@ -328,10 +364,17 @@ class MainWindow(QMainWindow):
 
         # 書籤（SRS-002 F-BM-*）
         self.act_bm_toggle = self._act(
-            "切換書籤(&T)", lambda: self._ed_call("perform", "bookmark_toggle"), "Ctrl+F2"
+            "切換書籤(&T)",
+            lambda: self._ed_call("perform", "bookmark_toggle"),
+            "Ctrl+F2",
+            action_id="bookmark_toggle",
         )
-        self.act_bm_next = self._act("下一個書籤(&N)", self.goto_next_bookmark, "F2")
-        self.act_bm_prev = self._act("上一個書籤(&P)", self.goto_prev_bookmark, "Shift+F2")
+        self.act_bm_next = self._act(
+            "下一個書籤(&N)", self.goto_next_bookmark, "F2", action_id="bookmark_next"
+        )
+        self.act_bm_prev = self._act(
+            "上一個書籤(&P)", self.goto_prev_bookmark, "Shift+F2", action_id="bookmark_prev"
+        )
         self.act_bm_clear = self._act(
             "清除全部書籤", lambda: self._ed_call("perform", "bookmark_clear")
         )
@@ -387,8 +430,18 @@ class MainWindow(QMainWindow):
             checkable=True,
             tip="希臘字母、℃、※ 之類的字在不同字型寬度不一，依實際顯示調整",
         )
-        self.act_help = self._act("欄模式操作說明(&H)", self.show_help, "F1")
+        self.act_help = self._act(
+            "欄模式操作說明(&H)", self.show_help, "F1", action_id="help"
+        )
         self.act_about = self._act("關於(&A)...", self.show_about)
+
+        # macOS 慣例：「關於」與「結束」屬於應用程式選單，不是「檔案」選單。
+        # Qt 是靠英文字樣猜 menuRole 的，本專案選單是中文，猜不到，必須明講
+        # （SRS-005 F-MAC-06）。順帶修掉一個實質 bug：沒有 QuitRole 的動作時，
+        # Qt 自己補的 ⌘Q 走的是 QApplication.quit()，不會觸發 closeEvent，
+        # 未存檔的修改會直接消失。
+        self.act_about.setMenuRole(QAction.MenuRole.AboutRole)
+        self.act_quit.setMenuRole(QAction.MenuRole.QuitRole)
 
     def _ed_call(self, name, *args):
         ed = self.editor()
@@ -567,7 +620,10 @@ class MainWindow(QMainWindow):
         eol_name = doc_io.EOL_NAMES.get(ed.eol, ed.eol)
         self.lbl_enc.setText(f"{ed.encoding}   {eol_name}")
         self.lbl_warn.setText(
-            "" if ed.font_is_aligned else "⚠ 此字型的中文不是英文的兩倍寬，欄位可能對不齊（請改用 Noto Sans Mono CJK）"
+            ""
+            if ed.font_is_aligned
+            else "⚠ 此字型的中文不是英文的兩倍寬，欄位可能對不齊"
+            f"（請改用 {platforms.FONT_HINT}）"
         )
 
     # ==================================================================
@@ -813,42 +869,64 @@ class MainWindow(QMainWindow):
         )
 
     def show_help(self):
+        alt = platforms.mod("Alt")
+        gnome = (
+            ""
+            if platforms.IS_MAC
+            else f"（GNOME 會攔截 {alt}+拖曳時就用這個）"
+        )
+        extra = ""
+        if platforms.EXTRA_SHORTCUTS:  # SRS-005 F-MAC-09
+            rows = "".join(
+                f"• {EXTRA_SHORTCUT_LABELS.get(action, action)}："
+                f"<b>{' / '.join(_keys(s) for s in sequences)}</b><br>"
+                for action, sequences in platforms.EXTRA_SHORTCUTS.items()
+            )
+            extra = (
+                "<br><br><b>功能鍵按不到時（不必壓 Fn）</b><br>"
+                f"{rows}"
+                f"原本的鍵仍然有效；{alt}+C 在 macOS 會打出 ç，所以也多給了一個。"
+            )
         QMessageBox.information(
             self,
             "欄模式操作說明",
             "<b>進入欄（直行）模式</b><br>"
-            "• 按住 <b>Alt</b> 再用滑鼠拖曳<br>"
-            "• <b>Alt+Shift+方向鍵</b> 從游標處展開<br>"
-            "• <b>Ctrl+Shift+B</b> 開啟黏著式欄選取，之後直接拖曳即可"
-            "（GNOME 會攔截 Alt+拖曳時就用這個）<br><br>"
+            f"• 按住 <b>{alt}</b> 再用滑鼠拖曳<br>"
+            f"• <b>{alt}+Shift+方向鍵</b> 從游標處展開<br>"
+            f"• <b>{_keys('Ctrl+Shift+B')}</b> 開啟黏著式欄選取，之後直接拖曳即可"
+            f"{gnome}<br><br>"
             "<b>在欄模式中</b><br>"
             "• 直接打字（含注音／拼音輸入法）→ 每一行同一欄位都插入<br>"
             "• <b>Backspace / Delete</b> → 整個矩形一起刪<br>"
-            "• <b>Ctrl+C / Ctrl+X / Ctrl+V</b> → 矩形複製、剪下、貼上<br>"
-            "• <b>Alt+C</b> → 欄位編輯器（整欄插入文字或遞增數列）<br>"
+            f"• <b>{_keys('Ctrl+C')} / {_keys('Ctrl+X')} / {_keys('Ctrl+V')}</b>"
+            " → 矩形複製、剪下、貼上<br>"
+            f"• <b>{_keys('Alt+C')}</b> → 欄位編輯器（整欄插入文字或遞增數列）<br>"
             "• <b>Esc</b> 或按方向鍵 → 回到一般模式<br><br>"
             "<b>中文寬度</b><br>"
             "一個中文字 = 兩欄。矩形邊界切到半個中文字時，該字會變成兩個空白，"
             "這樣刪除或插入後版面仍然對齊。<br><br>"
             "<b>書籤</b><br>"
-            "• <b>Ctrl+F2</b> 切換目前行的書籤，行號欄會出現藍點<br>"
-            "• <b>F2</b> / <b>Shift+F2</b> 跳到下一個／上一個（到底會繞回）<br>"
+            f"• <b>{_keys('Ctrl+F2')}</b> 切換目前行的書籤，行號欄會出現藍點<br>"
+            f"• <b>{_keys('F2')}</b> / <b>{_keys('Shift+F2')}</b>"
+            " 跳到下一個／上一個（到底會繞回）<br>"
             "• 書籤選單可以一次複製、剪下或刪除所有書籤行<br>"
             "• 在書籤上方插入或刪除文字時，書籤會跟著它那一行移動<br><br>"
             "<b>巨集</b><br>"
-            "• <b>Ctrl+Shift+R</b> 開始／停止錄製，<b>Ctrl+Shift+P</b> 播放<br>"
+            f"• <b>{_keys('Ctrl+Shift+R')}</b> 開始／停止錄製，"
+            f"<b>{_keys('Ctrl+Shift+P')}</b> 播放<br>"
             "• 「播放多次」可以指定次數或一路跑到檔尾<br>"
             "• 錄的是編輯動作本身（含中文輸入、欄模式、書籤、尋找），"
             "不是鍵盤按鍵，所以換個位置重播也會正確<br>"
-            "• 整段重播算一次 <b>Ctrl+Z</b>，效果不對可以一次還原<br>"
+            f"• 整段重播算一次 <b>{_keys('Ctrl+Z')}</b>，效果不對可以一次還原<br>"
             "• 巨集可命名儲存，下次開啟程式還在<br><br>"
             "<b>程式碼摺疊</b><br>"
             "• 點行號欄右側的 ▾ / ▸ 展開或摺疊<br>"
-            "• <b>Ctrl+Alt+F</b> 摺疊游標所在的區塊<br>"
-            "• <b>Alt+0</b> 全部摺疊，<b>Alt+Shift+0</b> 全部展開，"
-            "<b>Alt+1</b>~<b>Alt+8</b> 摺疊到指定層級<br>"
+            f"• <b>{_keys('Ctrl+Alt+F')}</b> 摺疊游標所在的區塊<br>"
+            f"• <b>{_keys('Alt+0')}</b> 全部摺疊，<b>{_keys('Alt+Shift+0')}</b> 全部展開，"
+            f"<b>{_keys('Alt+1')}</b>~<b>{_keys('Alt+8')}</b> 摺疊到指定層級<br>"
             "• 層級判斷：C/Java/JS 系看大括號，其餘看縮排<br>"
-            "• 搜尋或跳至行號落在摺疊區塊內時會自動展開",
+            "• 搜尋或跳至行號落在摺疊區塊內時會自動展開"
+            f"{extra}",
         )
 
     # ==================================================================

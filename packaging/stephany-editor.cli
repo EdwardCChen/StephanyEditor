@@ -1,0 +1,41 @@
+#!/bin/sh
+# Stephany Editor — 支援中文欄（直行）模式的文字編輯器
+# Copyright (C) 2026 Edward Chen
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# macOS 的終端機進入點（SRS-005 F-MAC-05）。
+# 裝在 .app 裡，通常再 symlink 到 /usr/local/bin/stephany-editor。
+#
+# 為什麼不直接 symlink 到 Contents/MacOS/stephany-editor：那個檔案是 Python
+# 直譯器本體（D-01），命令列參數會被它自己解析掉——`--version` 會印出
+# Python 的版本，`檔案.txt` 會被當成要執行的腳本。改用 `-m stephany` 呼叫，
+# 參數就完整交給 argparse。exec 的仍然是 bundle 裡的執行檔，所以 Dock 與
+# 選單列顯示的身分不變。
+set -eu
+
+# 解析 symlink，找出自己實際位於哪個 .app 裡
+SELF="$0"
+while [ -L "$SELF" ]; do
+    LINK="$(readlink "$SELF")"
+    case "$LINK" in
+        /*) SELF="$LINK" ;;
+        *) SELF="$(dirname "$SELF")/$LINK" ;;
+    esac
+done
+CONTENTS="$(cd "$(dirname "$SELF")/../.." && pwd)"
+
+PYTHONPATH="$CONTENTS/Resources/app${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec "$CONTENTS/MacOS/stephany-editor" -m stephany "$@"

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Stephany Editor 的 .app 中繼資料樣板（SRS-005）。
+  @VERSION@ 等欄位由 packaging/build-app.sh 在建構時填入，版本號只有
+  stephany/__init__.py 一個來源（BR-MAC-1）。
+-->
+<plist version="1.0">
+<dict>
+	<!-- CFBundleExecutable 指向的必須是 Python 直譯器本體，不是 shell 啟動器；
+	     否則 NSBundle 認不得這個 .app，選單列會顯示成腳本檔名（D-01）。 -->
+	<key>CFBundleExecutable</key>
+	<string>stephany-editor</string>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>CFBundleName</key>
+	<string>Stephany Editor</string>
+	<key>CFBundleDisplayName</key>
+	<string>Stephany Editor</string>
+	<key>CFBundleIconFile</key>
+	<string>stephany-editor</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSRequiresAquaSystemAppearance</key>
+	<false/>
+	<key>NSHumanReadableCopyright</key>
+	<string>@COPYRIGHT@ — GPL-3.0-or-later</string>
+	<!-- 註冊成文字檔的「可選」開啟方式（F-MAC-03）。
+	     LSHandlerRank 用 Alternate，不搶走使用者原本的預設程式。 -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>純文字檔</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.plain-text</string>
+				<string>public.utf8-plain-text</string>
+				<string>public.text</string>
+				<string>public.data</string>
+				<string>public.source-code</string>
+				<string>public.script</string>
+				<string>public.shell-script</string>
+				<string>public.python-script</string>
+				<string>public.c-source</string>
+				<string>public.c-header</string>
+				<string>public.json</string>
+				<string>public.xml</string>
+				<string>net.daringfireball.markdown</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -19,9 +19,21 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+PY="${PYTHON:-python3}"
+
 if [ ! -x .venv/bin/python ]; then
+    # macOS 內建的 /usr/bin/python3 是 3.9，建得起 venv 但裝不了 PySide6，
+    # 錯誤訊息又看不出真正原因，所以先擋在這裡（SRS-005）。
+    "$PY" - <<'PYCHECK' || exit 1
+import sys
+if sys.version_info < (3, 10):
+    sys.exit(
+        f"錯誤：需要 Python 3.10 以上，目前的 python3 是 {sys.version.split()[0]}。\n"
+        "      裝一個新版再用 PYTHON=/路徑/python3 ./run.sh 指定即可。"
+    )
+PYCHECK
     echo "第一次執行：建立虛擬環境中..."
-    python3 -m venv .venv
+    "$PY" -m venv .venv
     .venv/bin/pip install --quiet --upgrade pip
     .venv/bin/pip install --quiet -r requirements.txt
 fi

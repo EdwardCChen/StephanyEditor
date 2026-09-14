@@ -50,22 +50,15 @@ from ..core.bookmarks import BookmarkSet
 from ..core import folding as F
 from ..core.macro import MacroRecorder
 from ..core.widths import display_width, index_to_col, col_to_index
+from .. import platforms
 from . import theme
 from .commands import EditorCommands
 
 BLOCK_MIME = "application/x-stephany-block"
 
 #: 優先使用的等寬字型。中文必須剛好是英文的兩倍寬，欄位模式才能對齊。
-PREFERRED_FONTS = (
-    "Noto Sans Mono CJK TC",
-    "Noto Sans Mono CJK SC",
-    "Sarasa Mono TC",
-    "Sarasa Mono SC",
-    "WenQuanYi Zen Hei Mono",
-    "Noto Sans Mono",
-    "DejaVu Sans Mono",
-    "Monospace",
-)
+#: 清單依平台而異（macOS 沒有 Noto Sans Mono CJK），定義在 platforms 模組。
+PREFERRED_FONTS = platforms.PREFERRED_FONTS
 
 
 class _DocLines:
@@ -174,12 +167,24 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
     # 字型與度量
     # ------------------------------------------------------------------
     def _pick_font(self) -> QFont:
+        """挑第一個裝得到的偏好字型。
+
+        清單記的是 (家族, 樣式)：`Osaka` 的預設樣式中文只有 1.5 倍寬，
+        必須指名 `Regular-Mono` 才是 2 倍（SRS-005 BR-MAC-6），
+        所以不能只比對家族名稱。
+        """
         from PySide6.QtGui import QFontDatabase
 
         families = set(QFontDatabase.families())
-        for name in PREFERRED_FONTS:
-            if name in families:
-                return QFont(name, 12)
+        for name, style in PREFERRED_FONTS:
+            if name not in families:
+                continue
+            if style is not None and style not in QFontDatabase.styles(name):
+                continue
+            font = QFont(name, 12)
+            if style is not None:
+                font.setStyleName(style)
+            return font
         f = QFont()
         f.setStyleHint(QFont.StyleHint.Monospace)
         f.setPointSize(12)
@@ -586,6 +591,16 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
         key = event.key()
+
+        # Alt（macOS 的 ⌥）加上字母或數字在某些鍵盤配置會直接產生字元——
+        # macOS 上 ⌥C 是 `ç`、⌥0 是 `º`。這類組合在本程式的用途一律是快速鍵
+        # （Alt+C 欄位編輯器、Alt+0~8 摺疊層級），沒有任何動作接走時應該什麼
+        # 都不做，而不是把那個字打進文件裡（SRS-005 BR-MAC-3）。
+        # 方向鍵之類不帶文字的組合不受影響，Alt+Shift+方向鍵照樣能展開矩形。
+        text = event.text()
+        if alt and not ctrl and text and text.isprintable():
+            event.accept()
+            return
 
         # 從一般模式用 Alt+Shift+方向鍵直接開始欄選取
         if not self._block_on and alt and shift and key in self._NAV_KEYS:

@@ -2,12 +2,14 @@
 
 [![授權](https://img.shields.io/badge/授權-GPL--3.0--or--later-blue)](LICENSE)
 
-Ubuntu 桌面上的文字編輯器，重點是**中文能正確使用的欄（直行）模式** ——
-也就是 Notepad++ 的 Column Mode，但把全形字的寬度處理對。
+Ubuntu 與 macOS 桌面上的文字編輯器，重點是**中文能正確使用的欄（直行）模式**
+—— 也就是 Notepad++ 的 Column Mode，但把全形字的寬度處理對。
 
 ![欄模式](docs/column-mode.png)
 
 ## 安裝
+
+### Ubuntu
 
 建置並安裝 `.deb`：
 
@@ -23,16 +25,59 @@ sudo apt install ./dist/stephany-editor_*.deb
 否則會從約 300 KB 膨脹到 100 MB 以上，Qt 也拿不到系統的安全性更新。
 建置腳本只用 `dpkg-deb`，不需要 debhelper，也不需要 root。
 
+### macOS
+
+```bash
+./packaging/build-app.sh --install     # 建置並安裝到 /Applications
+```
+
+只想建不想裝就省略 `--install`，`.app` 會留在 `dist/`；加 `--dmg` 會另外做一個
+磁碟映像檔。移除就是把 `.app` 丟垃圾桶。
+
+需要 Python 3.10 以上（macOS 內建的 `/usr/bin/python3` 是 3.9，建置腳本會擋下來
+並告訴你怎麼指定別的：`PYTHON=/opt/homebrew/bin/python3.13 ./packaging/build-app.sh`）。
+其餘只用 macOS 自己就有的 `python3 -m venv`、`iconutil`、`hdiutil`——
+不需要 py2app、PyInstaller，也不需要 Xcode 專案或 root。
+
+終端機指令要另外接上：
+
+```bash
+sudo ln -sf "/Applications/Stephany Editor.app/Contents/Resources/bin/stephany-editor" \
+    /usr/local/bin/stephany-editor
+```
+
+`.app` 沒有經過 Apple 簽章。自己這台機器建的可以直接用；若是透過 `.dmg`
+拿到另一台 Mac，在收到端解除隔離即可：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Stephany Editor.app"
+```
+
 ## 從原始碼執行
 
 ```bash
 ./run.sh                  # 第一次執行會自動建立 .venv 並安裝 PySide6
 ./run.sh samples/demo.txt # 開啟範例檔
-./install-desktop.sh      # 只註冊桌面項目，不安裝套件
+./install-desktop.sh      # Ubuntu：只註冊桌面項目，不安裝套件
 ```
 
-需求：Python 3.10+、Ubuntu 桌面環境。字型建議 `Noto Sans Mono CJK TC`
-（`sudo apt install fonts-noto-cjk`），程式會自動挑選。
+需求：Python 3.10+。字型在 Ubuntu 上建議 `Noto Sans Mono CJK TC`
+（`sudo apt install fonts-noto-cjk`）；macOS 不必裝任何東西，程式會挑到系統
+內建的 `Osaka Regular-Mono`（理由見下面「中文寬度是怎麼處理的」）。
+
+## 跨平台的快速鍵
+
+快速鍵只維護一份，Qt 會在 macOS 自動把 `Ctrl` 對映成 `⌘`——底下表格寫
+`Ctrl` 的地方，在 Mac 上按的就是 `⌘`，`Alt` 則是 `⌥`。
+
+有兩類鍵在 macOS 上不好按，所以**另外多綁了一個**（原本的鍵仍然有效）：
+
+| 動作 | 跨平台 | macOS 另可用 | 為什麼 |
+|---|---|---|---|
+| 切換書籤 | `Ctrl`+`F2` | `⇧`+`⌘`+`M` | MacBook 預設要壓 `Fn` 才送得出功能鍵 |
+| 下一個／上一個書籤 | `F2` / `Shift`+`F2` | `⌥`+`⌘`+`↓` / `↑` | 同上 |
+| 欄位編輯器 | `Alt`+`C` | `⇧`+`⌘`+`C` | `⌥C` 在 macOS 會直接打出 `ç` |
+| 操作說明 | `F1` | `⌘`+`?` | 同功能鍵 |
 
 ## 欄（直行）模式
 
@@ -49,6 +94,7 @@ sudo apt install ./dist/stephany-editor_*.deb
 > ```bash
 > gsettings set org.gnome.desktop.wm.preferences mouse-button-modifier '<Super>'
 > ```
+> macOS 沒有這個問題，`⌥` + 拖曳本來就是原生的矩形選取手勢。
 
 ### 在欄模式中
 
@@ -93,6 +139,28 @@ sudo apt install ./dist/stephany-editor_*.deb
 **TAB** 的寬度與位置相依（下一個定位點），所以寬度計算一律是從行首往右走。
 切到 TAB 中間時同樣降級成空白。
 
+### 字型：這個前提得先成立
+
+上面所有規則的前提，是所用字型的中文**剛好**是半形的兩倍寬。不成立的話畫面上
+的「矩形」會是鋸齒狀，狀態列會出現紅字警告。
+
+Ubuntu 裝 `fonts-noto-cjk` 就有了。**macOS 一個內建等寬字型都不符合**——因為
+Menlo、Monaco、Courier New、Andale Mono、PT Mono 都沒有中文字符，中文是由系統的
+CJK 字型遞補算圖的（寬度固定等於字級），而它們的半形寬都不是字級的一半：
+
+| 字型（12pt） | 半形寬 | 中文寬 | 比例 |
+|---|---|---|---|
+| Menlo | 7.22 | 12.00 | 1.66 |
+| Monaco | 7.19 | 12.00 | 1.67 |
+| Andale Mono | 7.19 | 12.00 | 1.67 |
+| **Osaka `Regular-Mono`** | **6.00** | **12.00** | **2.00** ✅ |
+
+所以 macOS 上預設挑的是系統內建的 **Osaka Regular-Mono**（9~24pt 全部量測過，
+連 Osaka 本身沒有、要靠系統遞補的繁體字與全形標點也是準的）。注意它必須指名
+**樣式**：`Osaka` 的預設樣式比例是 1.5，只有 `Regular-Mono` 是 2.0。
+
+裝了 `Sarasa Mono TC` 或 `Noto Sans Mono CJK TC` 的話會優先用那些。
+
 ## 書籤
 
 | 按鍵 | 動作 |
@@ -117,8 +185,10 @@ sudo apt install ./dist/stephany-editor_*.deb
 
 - 換個位置重播也正確——欄模式的步驟記的是相對位移
 - 中文輸入法打的字錄得起來（錄的是送出的字串，不是注音按鍵）
-- 巨集能存成 JSON 跨 session 使用，檔案放在 `~/.config/StephanyEditor/macros.json`，
-  人類可讀、可以手改
+- 巨集能存成 JSON 跨 session 使用，人類可讀、可以手改。檔案位置依平台慣例：
+  Linux 是 `~/.config/StephanyEditor/macros.json`，macOS 是
+  `~/Library/Application Support/StephanyEditor/macros.json`。
+  想在幾台機器間共用就設 `STEPHANY_CONFIG_DIR` 指到雲端同步目錄
 
 整段重播（含所有迭代）算一次 `Ctrl`+`Z`。「跑到檔尾」會在游標到達結尾、
 或偵測到巨集空轉時自動停止，並有迭代次數上限防止無窮迴圈。
@@ -156,6 +226,7 @@ parser 的維護成本太高，而這兩種已涵蓋絕大多數實際檔案。
 
 ```
 stephany/
+├── platforms.py       # 平台差異的唯一集中處：字型、設定目錄、替代鍵
 ├── core/              # 純邏輯，不依賴 Qt，可單獨測試
 │   ├── widths.py      # 顯示寬度、欄位 <-> 字元索引轉換
 │   ├── block.py       # 矩形的取出／插入／刪除／取代／數列
@@ -195,7 +266,7 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
 .venv/bin/python -m pytest tests -q
 ```
 
-229 個測試，涵蓋：
+320 個測試，涵蓋：
 
 - **寬度與矩形**：切到全形字、切到 TAB、短行不被撐長、剪下再貼回可還原
 - **書籤**：文件增減行時的平移、被刪除的行、繞回式跳轉、連續區間合併
@@ -203,7 +274,11 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
 - **摺疊**：縮排與大括號兩種偵測、字串與註解裡的括號不算、巢狀層級
 - **主題**：深淺兩種配色下，文字在當前行反白上的 WCAG 對比度必須 >= 4.5
 - **打包**：app_id 與 .desktop 的一致性、安裝路徑、權限與相依宣告
+- **平台**：字型清單上標成「對得齊」的每一個字型都實際量測、設定目錄慣例、
+  macOS 替代鍵確實綁上、`Info.plist` 與 bundle id 的一致性
 - **GUI**：輸入法送字、矩形複製貼上、undo、跨分頁共用錄製器、選單動作接線
+- **macOS**：`⌥`+字母不得被當成輸入、`Ctrl` 確實對映成 `⌘`、
+  「關於／結束」的選單角色、Finder 開檔事件
 
 ## 桌面整合
 
@@ -219,6 +294,35 @@ Qt 6 在 Wayland 下用 `desktopFileName()` 當 xdg-shell 的 `app_id`，桌面�
 去比對已安裝的 `.desktop`。這個值若沒設（Qt 預設是空的），就會退回用執行檔名稱
 ——於是 Dock 上顯示成 `python3`。這三者的一致性有測試把關（`tests/test_packaging.py`）。
 
+### macOS 是同一個問題的另一種版本
+
+macOS 的身分不是程式自己喊的，是 `NSBundle` 認出來的，而 `NSBundle` 只認
+**目前執行檔的路徑**。實測同一支程式、同一份 `Info.plist`，只差在
+`Contents/MacOS/` 底下放什麼：
+
+| 作法 | 選單列顯示 |
+|---|---|
+| shell 腳本 `exec` 專案 `.venv` 的 python | `main.py` ❌ |
+| Python 直譯器本體放在 `Contents/MacOS/stephany-editor` | `Stephany Editor` ✅ |
+
+`setApplicationName()` 救不了第一種——Qt 讀不到 `CFBundleName` 時是退回執行檔
+名稱，不是退回 `applicationName`。
+
+所以 `.app` 是這樣組的：venv 直接建在 `Contents/` 之下（`pyvenv.cfg` 與 `MacOS/`
+同層，Python 找 venv 標記剛好就找得到），直譯器複製一份到
+`Contents/MacOS/stephany-editor`，進入點掛在 site-packages 的 `sitecustomize.py`
+——因為 LaunchServices 啟動它時不給任何參數，那是唯一不必改直譯器就能掛上
+進入點的位置。終端機用法則走 `Contents/Resources/bin/stephany-editor` 這個包裝
+腳本，用 `-m stephany` 呼叫同一個直譯器，命令列參數才不會被 Python 自己吃掉。
+
+Finder 雙擊開檔也不走 `argv`，而是送 `QFileOpenEvent`；事件可能比主視窗還早到，
+所以先排隊，等視窗建好再補開。
+
+應用程式選單裡的「關於／服務／隱藏／結束」不是本專案建的項目，是 Qt 依 macOS
+慣例自己組出來的，字串由 Qt 的翻譯檔提供。啟動時載入隨 Qt 安裝的
+`qtbase_zh_TW`，那幾項才會跟其餘介面一樣是中文；`QMessageBox` 的「確定／取消」
+也是同一批字串，所以各平台都一起受惠。
+
 ## 開發狀態
 
 | 模組 | 狀態 |
@@ -232,6 +336,8 @@ Qt 6 在 Wayland 下用 `desktopFileName()` 當 xdg-shell 的 `app_id`，桌面�
 | 程式碼摺疊（SRS-003 F-FD） | ✅ 完成 |
 | 深色／淺色主題 | ✅ 完成 |
 | deb 打包與桌面整合（SRS-004 F-PK） | ✅ 完成 |
+| macOS 支援與 .app 打包（SRS-005 F-MAC） | ✅ 完成 |
+| Windows 支援 | ⬜ 未規劃（`platforms.py` 已預留分支） |
 | 檔案比對 | ⬜ 未規劃 |
 | 工作階段還原 | ⬜ 未規劃 |
 | 外掛系統 | ⬜ 未規劃 |

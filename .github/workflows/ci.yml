@@ -24,8 +24,8 @@ jobs:
         run: python -m pip install --upgrade pip pytest
       - name: 確認 core 層沒有相依 Qt
         run: |
-          if grep -rn "PySide6\|PyQt" stephany/core/; then
-            echo "::error::stephany/core/ 不得 import Qt（NF-01）"
+          if grep -rn "PySide6\|PyQt" stephany/core/ stephany/platforms.py; then
+            echo "::error::core/ 與 platforms.py 不得 import Qt（NF-01）"
             exit 1
           fi
       - name: 執行核心測試
@@ -37,6 +37,8 @@ jobs:
             tests/test_macro.py \
             tests/test_folding.py \
             tests/test_packaging.py \
+            tests/test_packaging_macos.py \
+            tests/test_platform.py \
             -q
 
   gui:
@@ -62,3 +64,51 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest tests -q
+
+  macos:
+    # SRS-005 NF-03：macOS 的差異（字型度量、⌘ 對映、選單角色）只有在真的
+    # 跑在 macOS 上才驗得到，在 Linux 上跑一百次也不會發現。
+    name: macOS（offscreen）
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: 安裝 Python 相依套件
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+      - name: 執行全套測試
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests -q
+
+  macos-app:
+    # F-MAC-10：建構腳本必須在乾淨的 macOS 上、沒有額外打包工具、不用 root
+    # 的情況下跑得起來；並驗證產出的 .app 結構符合 D-01 / D-02。
+    name: macOS .app 建構
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: 建置 .app
+        run: ./packaging/build-app.sh
+      - name: 驗證 bundle 結構
+        run: |
+          APP="dist/Stephany Editor.app"
+          test -f "$APP/Contents/Info.plist"
+          test -f "$APP/Contents/pyvenv.cfg"                      # D-02
+          test -f "$APP/Contents/Resources/stephany-editor.icns"
+          # D-01：Contents/MacOS 底下必須是執行檔（Mach-O），不是 shell 腳本
+          file "$APP/Contents/MacOS/stephany-editor" | grep -q "Mach-O"
+          # BR-MAC-2：不得帶進建構期的殘留
+          ! test -d "$APP/Contents/bin"
+          ! find "$APP" -name '__pycache__' -type d | grep -q .
+          # F-MAC-12：Qt 的繁中翻譯要跟著進 bundle，否則選單會變英文
+          ls "$APP"/Contents/lib/python*/site-packages/PySide6/Qt/translations/qtbase_zh_TW.qm
+      - name: 終端機進入點可以執行（F-MAC-05）
+        run: |
+          "dist/Stephany Editor.app/Contents/Resources/bin/stephany-editor" --version

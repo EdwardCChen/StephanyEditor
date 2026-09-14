@@ -23,6 +23,13 @@
 # 桌面檔名、Icon、StartupWMClass 必須與程式宣告的 app_id 一致，
 # 工作列才不會把視窗顯示成 python3（SRS-004 D-01）。
 set -euo pipefail
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    echo "這是 Linux 的桌面項目註冊腳本。macOS 請用：" >&2
+    echo "    ./packaging/build-app.sh --install" >&2
+    exit 1
+fi
+
 DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_ID="stephany-editor"
 DEST="$HOME/.local/share/applications/$APP_ID.desktop"

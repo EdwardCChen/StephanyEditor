@@ -255,8 +255,11 @@ class MacroStore:
 
 
 def default_store_path() -> Path:
-    """D-04：巨集存在使用者設定目錄，人類可讀可手改。"""
-    import os
+    """D-04：巨集存在使用者設定目錄，人類可讀可手改。
 
-    base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
-    return Path(base) / "StephanyEditor" / "macros.json"
+    目錄位置各平台不同（SRS-005 D-06），由 `stephany.platforms` 決定；
+    那個模組同樣不相依 Qt，所以 core 仍然是純邏輯。
+    """
+    from ..platforms import config_dir
+
+    return config_dir() / "macros.json"

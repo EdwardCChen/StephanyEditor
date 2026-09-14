@@ -197,9 +197,14 @@ def test_f_pk_01_application_declares_its_desktop_identity(app):
     """沒有設 desktopFileName 時，Wayland 會退回執行檔名稱而顯示成 python3。"""
     from stephany.__main__ import APP_ID, configure_identity
 
+    from stephany import platforms
+
     configure_identity(app)
     assert app.desktopFileName() == APP_ID  # Wayland app_id
-    assert app.applicationName() == APP_ID  # X11 WM_CLASS
+    # macOS 沒有 WM_CLASS，身分由 .app 的 Info.plist 提供（SRS-005 D-01），
+    # applicationName 只是從原始碼執行時的退路，用人看得懂的名稱即可。
+    expected = "Stephany Editor" if platforms.IS_MAC else APP_ID
+    assert app.applicationName() == expected  # X11 WM_CLASS
     assert app.applicationDisplayName() == "Stephany Editor"
 
 
