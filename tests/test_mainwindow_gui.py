@@ -174,3 +174,21 @@ def test_new_menus_are_present(window):
     names = [a.text() for a in window.menuBar().actions()]
     assert "書籤(&K)" in names
     assert "巨集(&M)" in names
+
+
+# -- 桌面身分（SRS-004 F-PK-01、NF-01）--------------------------------
+def test_f_pk_01_application_declares_its_desktop_identity(app):
+    """沒有設 desktopFileName 時，Wayland 會退回執行檔名稱而顯示成 python3。"""
+    from stephany.__main__ import APP_ID, configure_identity
+
+    configure_identity(app)
+    assert app.desktopFileName() == APP_ID  # Wayland app_id
+    assert app.applicationName() == APP_ID  # X11 WM_CLASS
+    assert app.applicationDisplayName() == "Stephany Editor"
+
+
+def test_f_pk_01_window_icon_is_loaded(app):
+    from stephany.__main__ import configure_identity
+
+    configure_identity(app)
+    assert not app.windowIcon().isNull()

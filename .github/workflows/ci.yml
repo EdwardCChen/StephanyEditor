@@ -35,6 +35,8 @@ jobs:
             tests/test_block.py \
             tests/test_bookmarks.py \
             tests/test_macro.py \
+            tests/test_folding.py \
+            tests/test_packaging.py \
             -q
 
   gui:

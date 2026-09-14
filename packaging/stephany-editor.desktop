@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Stephany Editor
+GenericName=Text Editor
+GenericName[zh_TW]=文字編輯器
+Comment=支援中文欄（直行）模式的文字編輯器
+Comment[zh_TW]=支援中文欄（直行）模式的文字編輯器
+Comment[en]=Text editor with CJK-aware column mode
+Exec=stephany-editor %F
+Icon=stephany-editor
+Terminal=false
+Categories=Utility;TextEditor;Development;
+MimeType=text/plain;text/x-python;text/x-csrc;text/x-chdr;text/x-c++src;text/x-java;text/markdown;text/csv;application/json;application/xml;
+Keywords=editor;text;column;CJK;中文;編輯器;直行;欄位;
+StartupNotify=true
+StartupWMClass=stephany-editor

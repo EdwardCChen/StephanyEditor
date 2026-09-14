@@ -5,12 +5,28 @@ Ubuntu 桌面上的文字編輯器，重點是**中文能正確使用的欄（�
 
 ![欄模式](docs/column-mode.png)
 
-## 快速開始
+## 安裝
+
+建置並安裝 `.deb`：
+
+```bash
+./packaging/build-deb.sh
+sudo apt install ./dist/stephany-editor_*.deb
+```
+
+裝好之後會出現在 GNOME 應用程式選單，也可以從終端機用 `stephany-editor 檔案` 開檔。
+移除用 `sudo apt remove stephany-editor`。
+
+套件相依系統的 `python3-pyside6.*`（Ubuntu 24.04 以上內建），不內嵌 venv——
+否則會從約 300 KB 膨脹到 100 MB 以上，Qt 也拿不到系統的安全性更新。
+建置腳本只用 `dpkg-deb`，不需要 debhelper，也不需要 root。
+
+## 從原始碼執行
 
 ```bash
 ./run.sh                  # 第一次執行會自動建立 .venv 並安裝 PySide6
 ./run.sh samples/demo.txt # 開啟範例檔
-./install-desktop.sh      # 加進 Ubuntu 應用程式選單（選用）
+./install-desktop.sh      # 只註冊桌面項目，不安裝套件
 ```
 
 需求：Python 3.10+、Ubuntu 桌面環境。字型建議 `Noto Sans Mono CJK TC`
@@ -146,6 +162,7 @@ stephany/
 │   ├── folding.py     # 可摺疊區塊偵測（縮排／大括號）與摺疊狀態
 │   ├── macro.py       # 巨集步驟、錄製、序列化、重播停止條件
 │   └── document.py    # 編碼偵測、BOM、換行字元
+├── resources/         # 圖示（隨套件安裝，原始碼執行時也找得到）
 └── ui/
     ├── editor.py        # 編輯器 widget：矩形繪製、滑鼠鍵盤、輸入法、書籤、摺疊
     ├── commands.py      # 語意命令層：所有可錄製、可重播的編輯動作
@@ -176,14 +193,29 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
 .venv/bin/python -m pytest tests -q
 ```
 
-203 個測試，涵蓋：
+229 個測試，涵蓋：
 
 - **寬度與矩形**：切到全形字、切到 TAB、短行不被撐長、剪下再貼回可還原
 - **書籤**：文件增減行時的平移、被刪除的行、繞回式跳轉、連續區間合併
 - **巨集**：步驟合併、JSON 來回、損毀檔案的降級、重播的三個停止條件
 - **摺疊**：縮排與大括號兩種偵測、字串與註解裡的括號不算、巢狀層級
 - **主題**：深淺兩種配色下，文字在當前行反白上的 WCAG 對比度必須 >= 4.5
+- **打包**：app_id 與 .desktop 的一致性、安裝路徑、權限與相依宣告
 - **GUI**：輸入法送字、矩形複製貼上、undo、跨分頁共用錄製器、選單動作接線
+
+## 桌面整合
+
+工作列／Dock 要正確顯示應用程式名稱與圖示，靠的是三個值完全一致：
+
+| 位置 | 值 |
+|---|---|
+| `QGuiApplication.setDesktopFileName()` | `stephany-editor` |
+| `/usr/share/applications/` 底下的檔名 | `stephany-editor.desktop` |
+| desktop 檔的 `StartupWMClass` | `stephany-editor` |
+
+Qt 6 在 Wayland 下用 `desktopFileName()` 當 xdg-shell 的 `app_id`，桌面環境再拿它
+去比對已安裝的 `.desktop`。這個值若沒設（Qt 預設是空的），就會退回用執行檔名稱
+——於是 Dock 上顯示成 `python3`。這三者的一致性有測試把關（`tests/test_packaging.py`）。
 
 ## 開發狀態
 
@@ -197,6 +229,7 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
 | 巨集錄製（SRS-002 F-MC） | ✅ 完成 |
 | 程式碼摺疊（SRS-003 F-FD） | ✅ 完成 |
 | 深色／淺色主題 | ✅ 完成 |
+| deb 打包與桌面整合（SRS-004 F-PK） | ✅ 完成 |
 | 檔案比對 | ⬜ 未規劃 |
 | 工作階段還原 | ⬜ 未規劃 |
 | 外掛系統 | ⬜ 未規劃 |

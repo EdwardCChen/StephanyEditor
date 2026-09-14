@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Stephany Editor 圖示
+       設計重點：在 16px 下仍要能辨識，所以只靠三個大色塊的對比——
+       深色外框、淺色頁面、以及貫穿頁面的直行選取色帶（本編輯器的招牌功能）。
+       細節（文字列、中文字）只在大尺寸時才看得到。 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3d3a52"/>
+      <stop offset="1" stop-color="#25233a"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+
+  <!-- 頁面 -->
+  <rect x="46" y="40" width="164" height="176" rx="14" fill="#f4f2ee"/>
+
+  <!-- 文字列 -->
+  <g fill="#9a96a8">
+    <rect x="66" y="68"  width="124" height="12" rx="6"/>
+    <rect x="66" y="98"  width="124" height="12" rx="6"/>
+    <rect x="66" y="128" width="124" height="12" rx="6"/>
+    <rect x="66" y="158" width="124" height="12" rx="6"/>
+    <rect x="66" y="188" width="76"  height="12" rx="6"/>
+  </g>
+
+  <!-- 直行（欄）選取色帶：招牌功能，也是 16px 下唯一還看得見的細節 -->
+  <rect x="112" y="58" width="42" height="152" rx="8" fill="#7460d4" opacity="0.85"/>
+  <g fill="#ffffff">
+    <rect x="118" y="68"  width="30" height="12" rx="6"/>
+    <rect x="118" y="98"  width="30" height="12" rx="6"/>
+    <rect x="118" y="128" width="30" height="12" rx="6"/>
+    <rect x="118" y="158" width="30" height="12" rx="6"/>
+  </g>
+
+  <!-- 選取邊緣的游標 -->
+  <rect x="152" y="58" width="6" height="152" rx="3" fill="#ff6b60"/>
+</svg>

@@ -1,0 +1,15 @@
+#!/usr/bin/python3
+"""Stephany Editor 啟動器（由 deb 安裝到 /usr/bin/stephany-editor）。
+
+程式碼本體裝在 /usr/share/stephany-editor/（SRS-004 D-04：與架構無關的
+資料依 FHS 放 /usr/share），這裡把它加進 sys.path 後轉交進入點。
+"""
+
+import sys
+
+sys.path.insert(0, "/usr/share/stephany-editor")
+
+from stephany.__main__ import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())
