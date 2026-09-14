@@ -271,6 +271,23 @@ class EditorCommands:
         self.toggle_bookmark()
         return True
 
+    def cmd_bookmark_clear(self) -> bool:
+        self.clear_bookmarks()
+        return True
+
+    def cmd_bookmark_invert(self) -> bool:
+        self.invert_bookmarks()
+        return True
+
+    def cmd_bookmark_copy_lines(self) -> bool:
+        return self.copy_bookmarked_lines() > 0
+
+    def cmd_bookmark_cut_lines(self) -> bool:
+        return self.cut_bookmarked_lines() > 0
+
+    def cmd_bookmark_delete_lines(self) -> bool:
+        return self.delete_bookmarked_lines() > 0
+
     def cmd_bookmark_next(self) -> bool:
         return self.goto_next_bookmark()
 

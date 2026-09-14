@@ -734,7 +734,9 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
         """組字過程交給 Qt 原生顯示，只攔截「送出」那一刻套用到整個矩形。
 
         直接讓 base class 處理 commitString 會把字只插到游標那一行，
-        所以這裡把 commit 抽掉、改由 block_insert_text() 逐行套用。
+        所以這裡把 commit 抽掉、改由 block_insert 命令逐行套用。走 perform()
+        而不是直接呼叫 block_insert_text()，中文輸入法在欄模式下打的字才會
+        一併被巨集錄到（F-MC-07）。
         """
         if not self._block_on:
             super().inputMethodEvent(event)
@@ -748,7 +750,7 @@ class ColumnEditor(EditorCommands, QPlainTextEdit):
         passthrough = QInputMethodEvent(preedit, event.attributes())
         super().inputMethodEvent(passthrough)
         if commit:
-            self.block_insert_text(commit)
+            self.perform("block_insert", text=commit)
 
     # ------------------------------------------------------------------
     # 欄模式的文字異動

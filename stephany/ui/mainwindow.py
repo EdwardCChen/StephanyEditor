@@ -313,8 +313,12 @@ class MainWindow(QMainWindow):
         )
         self.act_bm_next = self._act("下一個書籤(&N)", self.goto_next_bookmark, "F2")
         self.act_bm_prev = self._act("上一個書籤(&P)", self.goto_prev_bookmark, "Shift+F2")
-        self.act_bm_clear = self._act("清除全部書籤", lambda: self._ed_call("clear_bookmarks"))
-        self.act_bm_invert = self._act("反轉書籤", lambda: self._ed_call("invert_bookmarks"))
+        self.act_bm_clear = self._act(
+            "清除全部書籤", lambda: self._ed_call("perform", "bookmark_clear")
+        )
+        self.act_bm_invert = self._act(
+            "反轉書籤", lambda: self._ed_call("perform", "bookmark_invert")
+        )
         self.act_bm_copy = self._act("複製書籤行", lambda: self._bookmark_lines("copy"))
         self.act_bm_cut = self._act("剪下書籤行", lambda: self._bookmark_lines("cut"))
         self.act_bm_delete = self._act("刪除書籤行", lambda: self._bookmark_lines("delete"))
@@ -641,15 +645,10 @@ class MainWindow(QMainWindow):
         if not len(ed.bookmarks):
             self.statusBar().showMessage("沒有書籤", 2000)
             return
-        if action == "copy":
-            n = ed.copy_bookmarked_lines()
-            self.statusBar().showMessage(f"已複製 {n} 行", 3000)
-        elif action == "cut":
-            n = ed.cut_bookmarked_lines()
-            self.statusBar().showMessage(f"已剪下 {n} 行", 3000)
-        else:
-            n = ed.delete_bookmarked_lines()
-            self.statusBar().showMessage(f"已刪除 {n} 行", 3000)
+        n = len(ed.bookmarks)
+        verb = {"copy": "已複製", "cut": "已剪下", "delete": "已刪除"}[action]
+        ed.perform(f"bookmark_{action}_lines")  # 走命令層才錄得到（F-MC-07）
+        self.statusBar().showMessage(f"{verb} {n} 行", 3000)
 
     # ==================================================================
     # 巨集（SRS-002 F-MC-*）

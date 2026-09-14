@@ -249,3 +249,42 @@ def test_boundary_stop_is_an_error_in_fixed_count_mode(editor):
     done, error = editor.replay(macro, count=5)
     assert done == 1
     assert "沒有可執行的對象" in error
+
+
+def test_f_mc_07_ime_commit_in_block_mode_is_recorded(editor):
+    """欄模式下用輸入法打中文也要錄得到——收尾稽核找到的接線缺口。"""
+    editor.setPlainText("1\n2\n3")
+    goto(editor, 0, 1)
+    editor.recorder.start()
+    editor.perform("block_begin")
+    editor.perform("block_extend", dline=2, dcol=0)
+    event = QInputMethodEvent("", [])
+    event.setCommitString("備註")
+    editor.inputMethodEvent(event)
+    macro = editor.recorder.stop()
+    assert [s.command for s in macro.steps] == [
+        "block_begin",
+        "block_extend",
+        "block_insert",
+    ]
+    assert macro.steps[2].args == {"text": "備註"}
+    assert editor.toPlainText().split("\n") == ["1備註", "2備註", "3備註"]
+
+
+def test_f_mc_07_bulk_bookmark_operations_are_recordable(editor):
+    editor.setPlainText("甲\n乙\n丙\n丁")
+    goto(editor, 1)
+    editor.recorder.start()
+    editor.perform("bookmark_toggle")
+    editor.perform("bookmark_delete_lines")
+    macro = editor.recorder.stop()
+    assert [s.command for s in macro.steps] == [
+        "bookmark_toggle",
+        "bookmark_delete_lines",
+    ]
+    assert editor.toPlainText() == "甲\n丙\n丁"
+
+
+def test_bulk_bookmark_command_without_bookmarks_reports_no_target(editor):
+    editor.setPlainText("a\nb")
+    assert editor.perform("bookmark_delete_lines") is False
