@@ -17,3 +17,14 @@
 """Stephany Editor — 支援中文欄（直行）模式的文字編輯器。"""
 
 __version__ = "0.9.0"
+
+#: 應用程式識別碼。三個平台都拿它當身分的根：
+#: Linux 的 `.desktop` 檔名與 Wayland `app_id`（SRS-004 D-01）、
+#: macOS 的 `CFBundleExecutable`（SRS-005 D-01）、
+#: Windows 的執行檔名稱（SRS-006 D-W1）。
+APP_ID = "stephany-editor"
+
+#: 反向網域名稱形式的識別碼。macOS 的 `CFBundleIdentifier` 與 Windows 的
+#: `AppUserModelID` 必須是同一個字串（BR-MAC-5、BR-WIN-3）——兩邊各寫一次
+#: 字面值遲早會漂移，所以來源只有這裡一個。
+BUNDLE_ID = f"io.github.edwardcchen.{APP_ID}"

@@ -31,9 +31,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-APP_ID="stephany-editor"
 APP_NAME="Stephany Editor"
-BUNDLE_ID="io.github.edwardcchen.stephany-editor"
 COPYRIGHT_HOLDER="Edward Chen"
 COPYRIGHT_YEAR="2026"
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
@@ -54,12 +52,16 @@ if [ "$(uname -s)" != "Darwin" ]; then
     exit 1
 fi
 
-# BR-MAC-1 / BR-PK-1：版本號只有一個來源
-VERSION="$(/usr/bin/python3 -c "
-import re, pathlib
-text = pathlib.Path('stephany/__init__.py').read_text(encoding='utf-8')
-print(re.search(r'__version__ = \"([^\"]+)\"', text).group(1))
-")"
+# BR-MAC-1 / BR-PK-1 / BR-WIN-3：版本號與識別碼都只有一個來源。
+# 直接 import 套件（`stephany/__init__.py` 沒有任何第三方相依，venv 還沒建
+# 起來也讀得到），而不是用正規表示式刮原始碼——BUNDLE_ID 是由 APP_ID 組出來
+# 的 f-string，刮不到。
+read_meta() {
+    PYTHONPATH="$ROOT" /usr/bin/python3 -c "import stephany; print(stephany.$1)"
+}
+VERSION="$(read_meta __version__)"
+APP_ID="$(read_meta APP_ID)"
+BUNDLE_ID="$(read_meta BUNDLE_ID)"
 
 # 建構用的直譯器。這一版 Python 的標準函式庫就是 .app 之後執行時會用的那一份
 # （D-03 的取捨），所以刻意印出來讓人看見。

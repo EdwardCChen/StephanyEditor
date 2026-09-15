@@ -31,10 +31,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import __version__, platforms
-
-#: 應用程式識別碼。與 .desktop 檔名、StartupWMClass 一致（D-01）。
-APP_ID = "stephany-editor"
+from . import APP_ID, __version__, platforms  # noqa: F401  APP_ID 供他處 import
 
 #: Qt 自己那些字串要用的翻譯檔（SRS-005 D-09）。本程式介面一律繁體中文。
 QT_TRANSLATION = "qtbase_zh_TW"
@@ -110,6 +107,9 @@ def configure_identity(app) -> None:
     app.setApplicationDisplayName(APP_NAME)
     app.setApplicationVersion(__version__)
     app.setWindowIcon(app_icon())
+    # Windows 的第三種身分宣告：沒有它，工作列會把本程式跟其他 Python
+    # 程式分到同一組（SRS-006 D-W1）。非 Windows 平台是 no-op。
+    platforms.set_app_user_model_id()
 
 
 def install_translations(app):

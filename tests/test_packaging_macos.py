@@ -54,12 +54,6 @@ def plist() -> dict:
     return plistlib.loads(PLIST.read_bytes())
 
 
-def _shell_var(name: str) -> str:
-    match = re.search(rf'^{name}="([^"]*)"', SCRIPT, re.MULTILINE)
-    assert match, f"build-app.sh 找不到 {name}"
-    return match.group(1)
-
-
 # -- D-01：Contents/MacOS 底下必須是直譯器本體 ------------------------
 def test_d_01_the_bundle_executable_is_the_app_id(plist):
     assert plist["CFBundleExecutable"] == APP_ID
@@ -139,7 +133,7 @@ def test_build_script_rejects_a_python_older_than_the_project_requires():
 def test_br_mac_1_version_comes_from_the_package(plist):
     assert plist["CFBundleShortVersionString"] == "@VERSION@"
     assert plist["CFBundleVersion"] == "@VERSION@"
-    assert "stephany/__init__.py" in SCRIPT
+    assert "import stephany" in CODE, "版本號必須真的從套件讀，不能只是註解提到"
     assert "s|@VERSION@|$VERSION|g" in SCRIPT
 
 
@@ -150,9 +144,24 @@ def test_br_mac_1_version_is_a_valid_bundle_version():
 
 # -- BR-MAC-5：bundle id 與 app_id 同源 -------------------------------
 def test_br_mac_5_bundle_id_is_derived_from_the_app_id():
-    bundle_id = _shell_var("BUNDLE_ID")
-    assert bundle_id.endswith(f".{APP_ID}"), bundle_id
-    assert bundle_id.count(".") >= 2, "CFBundleIdentifier 慣例是反向網域名稱"
+    from stephany import BUNDLE_ID
+
+    assert BUNDLE_ID.endswith(f".{APP_ID}"), BUNDLE_ID
+    assert BUNDLE_ID.count(".") >= 2, "CFBundleIdentifier 慣例是反向網域名稱"
+
+
+def test_br_win_3_the_build_script_reads_the_identifiers_from_the_package():
+    """版本號、APP_ID、BUNDLE_ID 都不得在腳本裡再寫一次字面值。
+
+    BUNDLE_ID 從 SRS-006 開始由 Windows 的 AppUserModelID 共用
+    （BR-WIN-3），兩邊各寫一次遲早會漂移。
+    """
+    from stephany import BUNDLE_ID
+
+    assert f'BUNDLE_ID="{BUNDLE_ID}"' not in SCRIPT
+    assert "read_meta BUNDLE_ID" in SCRIPT
+    assert "read_meta APP_ID" in SCRIPT
+    assert "read_meta __version__" in SCRIPT
 
 
 def test_br_mac_5_plist_takes_the_bundle_id_from_the_build_script(plist):

@@ -172,6 +172,42 @@ def mod(name: str) -> str:
 
 
 # ======================================================================
+# 應用程式身分（SRS-006 D-W1、F-WIN-01、BR-WIN-3）
+# ======================================================================
+from . import BUNDLE_ID  # noqa: E402  放在這裡才看得出它屬於「身分」這一段
+
+#: Windows 用來辨識應用程式的識別碼。與 macOS 的 `CFBundleIdentifier`
+#: 同一個字串（BR-WIN-3）。
+APP_USER_MODEL_ID = BUNDLE_ID
+
+
+def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:
+    """向 Windows 宣告這個程序的身分；非 Windows 平台什麼都不做。
+
+    沒有宣告時，Windows 會從**執行檔路徑**推導身分——而從原始碼執行時，
+    所有 Python 程式的執行檔路徑都是同一個 `pythonw.exe`，於是工作列會把
+    本程式跟其他 Python 程式分到同一組，工作管理員也顯示成 `pythonw`。
+
+    這是 SRS-004 D-01（Dock 顯示成 `python3`）與 SRS-005 D-01（選單列顯示成
+    `main.py`）在 Windows 上的第三個版本：**應用程式身分要由作業系統認得的
+    地方宣告，不是由程式自己喊。** 安裝版另外還有自己的
+    `stephany-editor.exe`（D-W1），兩者一起才完整。
+
+    回傳有沒有真的設定成功。設不起來只是工作列分組不理想，不該讓程式起不來，
+    所以失敗就安靜回傳 False。
+    """
+    if not IS_WINDOWS:
+        return False
+    try:
+        import ctypes
+
+        hr = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except (AttributeError, OSError):  # 非 CPython、或 shell32 不在
+        return False
+    return hr == 0
+
+
+# ======================================================================
 # 設定目錄（SRS-005 D-06）
 # ======================================================================
 #: 想在多台機器間共用巨集的人，把這個環境變數指到雲端同步目錄即可

@@ -169,3 +169,38 @@ def test_f_win_08_alt_c_really_is_shadowed_by_the_menu_mnemonic(window):
     window.editor().setFocus()
     QTest.keyClick(window, Qt.Key.Key_C, Qt.KeyboardModifier.AltModifier)
     assert not fired, "Alt+C 竟然按得到了——F-WIN-08 的替代鍵可以重新檢視"
+
+
+# -- F-WIN-01 / D-W1：應用程式身分 ------------------------------------
+def _explicit_app_user_model_id() -> str | None:
+    """問 Windows：這個程序目前宣告的 AppUserModelID 是什麼？"""
+    import ctypes
+
+    buf = ctypes.c_wchar_p()
+    hr = ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID(
+        ctypes.byref(buf)
+    )
+    return buf.value if hr == 0 else None
+
+
+def test_d_w1_the_process_declares_its_app_user_model_id():
+    """沒有宣告時，Windows 會用執行檔路徑推導身分——而所有 Python 程式的
+    執行檔路徑都是同一個 pythonw.exe，工作列會把我們跟別的 Python 程式
+    分到同一組，工作管理員也顯示成 pythonw。
+
+    這是 SRS-004 D-01（Dock 顯示成 python3）與 SRS-005 D-01（選單列顯示成
+    main.py）在 Windows 上的第三個版本。
+    """
+    from stephany import BUNDLE_ID
+
+    assert platforms.set_app_user_model_id() is True
+    assert _explicit_app_user_model_id() == BUNDLE_ID
+
+
+def test_f_win_01_configure_identity_sets_it_too(app):
+    """實際啟動路徑要真的走到它，不能只有函式存在。"""
+    from stephany import BUNDLE_ID
+    from stephany.__main__ import configure_identity
+
+    configure_identity(app)
+    assert _explicit_app_user_model_id() == BUNDLE_ID

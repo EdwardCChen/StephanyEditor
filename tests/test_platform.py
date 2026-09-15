@@ -329,3 +329,39 @@ def test_d_w9_only_conftest_decides_the_qt_platform_plugin():
             if sets_the_plugin(node):
                 offenders.append(f"{path.name}:{node.lineno}")
     assert not offenders, f"平台外掛只能由 conftest.py 決定：{offenders}"
+
+
+# -- D-W1 / BR-WIN-3：三個平台的識別碼同源 ----------------------------
+def test_br_win_3_the_bundle_id_has_a_single_source():
+    """AppUserModelID（Windows）與 CFBundleIdentifier（macOS）必須同一個字串。
+
+    兩邊各寫一次字面值遲早會漂移——與 BR-PK-1／BR-MAC-1 對版本號的要求
+    同一個道理，來源只能有一個。
+    """
+    from stephany import APP_ID, BUNDLE_ID
+
+    assert BUNDLE_ID.endswith(f".{APP_ID}"), BUNDLE_ID
+    assert BUNDLE_ID.count(".") >= 2, "慣例是反向網域名稱"
+
+
+def test_br_win_3_the_macos_build_script_reads_the_same_source():
+    """build-app.sh 不得自己再寫一次 bundle id 的字面值。"""
+    from stephany import BUNDLE_ID
+
+    script = (ROOT / "packaging" / "build-app.sh").read_text(encoding="utf-8")
+    assert f'BUNDLE_ID="{BUNDLE_ID}"' not in script, (
+        "build-app.sh 仍然寫死 bundle id，改成從 stephany 套件讀"
+    )
+    assert "BUNDLE_ID" in script
+
+
+def test_d_w1_the_app_user_model_id_is_the_bundle_id():
+    from stephany import BUNDLE_ID
+
+    assert platforms.APP_USER_MODEL_ID == BUNDLE_ID
+
+
+def test_d_w1_setting_the_identity_is_a_no_op_off_windows(monkeypatch):
+    """這個函式在每個平台都會被呼叫到，非 Windows 必須安靜地什麼都不做。"""
+    if not platforms.IS_WINDOWS:
+        assert platforms.set_app_user_model_id() is False
