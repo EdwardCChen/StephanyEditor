@@ -874,28 +874,31 @@ class MainWindow(QMainWindow):
             "原始碼與問題回報</a></p>",
         )
 
-    def show_help(self):
+    def _help_text(self) -> str:
+        """組出說明視窗的內容。
+
+        抽成獨立的方法有兩個好處：說明文字測得到（modal 對話框測不到），
+        以及平台差異只剩「取用 platforms 的字串」，不會又長出寫死的句子。
+
+        這裡每一句平台限定的話都必須來自 `platforms`（SRS-005 D-08）——
+        替代鍵的理由在 macOS 是「功能鍵要壓 Fn、⌥ 會打出字元」，在 Windows
+        是「Alt+C 被選單助憶鍵吃掉」，Linux 則根本不需要這一段。
+        """
         alt = platforms.mod("Alt")
-        gnome = (
-            ""
-            if platforms.IS_MAC
-            else f"（GNOME 會攔截 {alt}+拖曳時就用這個）"
-        )
+        gnome = platforms.STICKY_MODE_HINT
         extra = ""
-        if platforms.EXTRA_SHORTCUTS:  # SRS-005 F-MAC-09
+        if platforms.EXTRA_SHORTCUTS:  # SRS-005 F-MAC-09、SRS-006 F-WIN-08
             rows = "".join(
                 f"• {EXTRA_SHORTCUT_LABELS.get(action, action)}："
                 f"<b>{' / '.join(_keys(s) for s in sequences)}</b><br>"
                 for action, sequences in platforms.EXTRA_SHORTCUTS.items()
             )
             extra = (
-                "<br><br><b>功能鍵按不到時（不必壓 Fn）</b><br>"
+                f"<br><br><b>{platforms.EXTRA_SHORTCUTS_TITLE}</b><br>"
                 f"{rows}"
-                f"原本的鍵仍然有效；{alt}+C 在 macOS 會打出 ç，所以也多給了一個。"
+                f"{platforms.EXTRA_SHORTCUTS_REASON}"
             )
-        QMessageBox.information(
-            self,
-            "欄模式操作說明",
+        return (
             "<b>進入欄（直行）模式</b><br>"
             f"• 按住 <b>{alt}</b> 再用滑鼠拖曳<br>"
             f"• <b>{alt}+Shift+方向鍵</b> 從游標處展開<br>"
@@ -932,8 +935,11 @@ class MainWindow(QMainWindow):
             f"<b>{_keys('Alt+1')}</b>~<b>{_keys('Alt+8')}</b> 摺疊到指定層級<br>"
             "• 層級判斷：C/Java/JS 系看大括號，其餘看縮排<br>"
             "• 搜尋或跳至行號落在摺疊區塊內時會自動展開"
-            f"{extra}",
+            f"{extra}"
         )
+
+    def show_help(self):
+        QMessageBox.information(self, "欄模式操作說明", self._help_text())
 
     # ==================================================================
     # 設定存取與視窗事件

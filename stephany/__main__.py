@@ -40,13 +40,29 @@ _CTRL = platforms.mod("Ctrl")
 _ALT = platforms.mod("Alt")
 _SHIFT = platforms.mod("Shift")
 
+def _keys(sequence: str) -> str:
+    """把 `Ctrl+Shift+C` 這種可攜寫法排成本平台看得懂的字樣。"""
+    return " + ".join(platforms.mod(part) for part in sequence.split("+"))
+
+
+def _column_editor_key() -> str:
+    """欄位編輯器在**這個平台**實際按得到的鍵。
+
+    寫死 `Alt+C` 的話，Windows 使用者會讀到一個被選單助憶鍵吃掉的鍵，
+    macOS 使用者讀到的則是會打出 `ç` 的鍵——印一個按不到的鍵比不印還糟
+    （SRS-006 F-WIN-08、SRS-005 D-05）。
+    """
+    extra = platforms.extra_shortcuts("column_editor")
+    return _keys(extra[0]) if extra else f"{_ALT} + C"
+
+
 #: 修飾鍵依平台顯示（macOS 是 ⌘ / ⌥），與實際綁定的鍵一致（SRS-005 D-05）
 _USAGE_KEYS = (
     ("欄模式快速鍵：", None),
     (f"{_ALT} + 滑鼠拖曳", "拉出矩形選取"),
     (f"{_ALT} + {_SHIFT} + 方向鍵", "從游標處展開矩形"),
     (f"{_CTRL} + {_SHIFT} + B", f"黏著式欄選取（不必按 {_ALT}）"),
-    (f"{_ALT} + C", "欄位編輯器（整欄插入文字或遞增數列）"),
+    (_column_editor_key(), "欄位編輯器（整欄插入文字或遞增數列）"),
     ("", None),
     ("其他：", None),
     (f"{_CTRL} + F2 / F2", "切換書籤 / 跳至下一個書籤"),

@@ -119,29 +119,47 @@ def test_br_mac_4_win_5_extra_shortcuts_only_ever_add(monkeypatch):
             assert sequences, action_id
 
 
+#: 每個平台的補鍵表。規則對每一張都成立，不是只檢查目前這台機器的那張
+#: ——否則在 Linux 上跑 CI 時，兩張表都不會被驗到。
+ALL_EXTRA_TABLES = {
+    "macOS": platforms._MAC_EXTRA_SHORTCUTS,
+    "Windows": platforms._WINDOWS_EXTRA_SHORTCUTS,
+}
+
+
 def test_every_extra_shortcut_belongs_to_a_real_action():
     """漏改 mainwindow 的 action_id 時，這個測試會抓到。"""
-    for action_id in platforms._MAC_EXTRA_SHORTCUTS:
-        assert f'action_id="{action_id}"' in MAINWINDOW_SRC, action_id
+    for platform, table in ALL_EXTRA_TABLES.items():
+        for action_id in table:
+            assert f'action_id="{action_id}"' in MAINWINDOW_SRC, (
+                f"{platform} 的 {action_id}"
+            )
 
 
-def test_extra_shortcuts_do_not_use_option_plus_letter():
-    """⌥+字母／數字在 macOS 會直接打出字元，當快速鍵不可靠（BR-MAC-3）。"""
-    for sequences in platforms._MAC_EXTRA_SHORTCUTS.values():
-        for seq in sequences:
-            assert not re.search(r"Alt\+[A-Za-z0-9]$", seq), seq
+def test_extra_shortcuts_do_not_use_alt_plus_letter():
+    """補鍵不得再用 Alt+字母／數字——那正是要繞過的東西：
+    macOS 會直接打出字元（⌥C → ç，BR-MAC-3），Windows 會被選單助憶鍵
+    吃掉（F-WIN-08）。用它當替代鍵等於沒換。
+    """
+    for platform, table in ALL_EXTRA_TABLES.items():
+        for sequences in table.values():
+            for seq in sequences:
+                assert not re.search(r"Alt\+[A-Za-z0-9]$", seq), f"{platform}：{seq}"
 
 
-def test_extra_shortcuts_are_command_based():
-    """Qt 會把可攜寫法的 Ctrl 對映成 ⌘，替代鍵一律以它為主修飾鍵。"""
-    for sequences in platforms._MAC_EXTRA_SHORTCUTS.values():
-        for seq in sequences:
-            assert seq.startswith("Ctrl+"), seq
+def test_extra_shortcuts_are_control_based():
+    """一律以 Ctrl 為主修飾鍵：Qt 在 macOS 會把它對映成 ⌘，Windows 就是
+    Ctrl 本身，兩邊寫法一致（BR-MAC-4、BR-WIN-5）。"""
+    for platform, table in ALL_EXTRA_TABLES.items():
+        for sequences in table.values():
+            for seq in sequences:
+                assert seq.startswith("Ctrl+"), f"{platform}：{seq}"
 
 
-def test_extra_shortcuts_are_unique():
-    used = [s for seqs in platforms._MAC_EXTRA_SHORTCUTS.values() for s in seqs]
-    assert len(used) == len(set(used))
+def test_extra_shortcuts_are_unique_within_each_platform():
+    for platform, table in ALL_EXTRA_TABLES.items():
+        used = [s for seqs in table.values() for s in seqs]
+        assert len(used) == len(set(used)), platform
 
 
 def test_every_extra_shortcut_has_a_label_for_the_help_dialog():
@@ -151,8 +169,25 @@ def test_every_extra_shortcut_has_a_label_for_the_help_dialog():
     """
     start = MAINWINDOW_SRC.index("EXTRA_SHORTCUT_LABELS = {")
     labels = MAINWINDOW_SRC[start : MAINWINDOW_SRC.index("}", start)]
-    for action_id in platforms._MAC_EXTRA_SHORTCUTS:
-        assert f'"{action_id}":' in labels, action_id
+    for platform, table in ALL_EXTRA_TABLES.items():
+        for action_id in table:
+            assert f'"{action_id}":' in labels, f"{platform} 的 {action_id}"
+
+
+def test_every_platform_with_extra_keys_explains_why():
+    """說明視窗要講「為什麼這個鍵換了」。補了鍵卻沒有理由可講，
+    使用者只會看到一串沒頭沒尾的按鍵（SRS-006 F-WIN-08 的收尾）。"""
+    if platforms.EXTRA_SHORTCUTS:
+        assert platforms.EXTRA_SHORTCUTS_TITLE
+        assert platforms.EXTRA_SHORTCUTS_REASON
+    else:
+        assert not platforms.EXTRA_SHORTCUTS_TITLE
+        assert not platforms.EXTRA_SHORTCUTS_REASON
+
+
+def test_the_gnome_hint_is_linux_only():
+    """GNOME 會攔截 Alt+拖曳——那是 Linux 才有的事。"""
+    assert bool(platforms.STICKY_MODE_HINT) is platforms.IS_LINUX
 
 
 def test_extra_shortcuts_of_an_unknown_action_is_empty():
@@ -365,3 +400,29 @@ def test_d_w1_setting_the_identity_is_a_no_op_off_windows(monkeypatch):
     """這個函式在每個平台都會被呼叫到，非 Windows 必須安靜地什麼都不做。"""
     if not platforms.IS_WINDOWS:
         assert platforms.set_app_user_model_id() is False
+
+
+# -- 終端機說明文字也要講本平台按得到的鍵（F-WIN-08 的收尾）------------
+def test_the_cli_usage_advertises_a_column_editor_key_that_works_here():
+    """`stephany-editor --help` 印的是 Alt+C，但那個鍵在 Windows 按不到
+    （被選單助憶鍵吃掉）、在 macOS 會打出 ç。印一個按不到的鍵給使用者看，
+    比不印還糟。
+    """
+    from stephany.__main__ import USAGE
+
+    extra = platforms.extra_shortcuts("column_editor")
+    assert "欄位編輯器" in USAGE
+    if not extra:
+        return
+    # 有替代鍵的平台，說明裡就必須看得到它
+    keys = extra[0].split("+")
+    rendered = " + ".join(platforms.mod(part) for part in keys)
+    assert rendered in USAGE, f"說明裡找不到 {rendered}"
+
+
+def test_the_cli_usage_is_not_written_for_another_platform():
+    from stephany.__main__ import USAGE
+
+    if not platforms.IS_MAC:
+        for symbol in ("⌘", "⌥", "⇧"):
+            assert symbol not in USAGE, symbol

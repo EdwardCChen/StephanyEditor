@@ -158,6 +158,28 @@ def extra_shortcuts(action: str) -> tuple[str, ...]:
     return EXTRA_SHORTCUTS.get(action, ())
 
 
+#: 說明視窗裡那一段替代鍵的標題與理由。各平台補鍵的**原因不一樣**，
+#: 文字寫死在 UI 裡的話，Windows 使用者會讀到「不必壓 Fn」這種跟他無關的話。
+EXTRA_SHORTCUTS_TITLE: str = (
+    "功能鍵按不到時（不必壓 Fn）"
+    if IS_MAC
+    else "被系統或選單搶走的鍵，另有替代鍵"
+    if IS_WINDOWS
+    else ""
+)
+
+EXTRA_SHORTCUTS_REASON: str = (
+    "原本的鍵仍然有效；⌥+C 會直接打出 ç，所以也多給了一個。"
+    if IS_MAC
+    else "原本的鍵仍然有效；Alt+C 會被選單列的「編碼(&C)」助憶鍵吃掉，所以多給了一個。"
+    if IS_WINDOWS
+    else ""
+)
+
+#: 只有 Linux 需要這句：GNOME 預設會把 Alt+拖曳拿去搬視窗。
+STICKY_MODE_HINT: str = "（GNOME 會攔截 Alt+拖曳時就用這個）" if IS_LINUX else ""
+
+
 #: 說明文字裡的修飾鍵寫法。macOS 使用者看的是符號，不是英文字。
 MODIFIER_NAMES: dict[str, str] = (
     {"Ctrl": "⌘", "Alt": "⌥", "Shift": "⇧", "Meta": "⌃"}

@@ -19,6 +19,8 @@
 對應 SRS-002 F-BM-*、F-MC-*、BR-BM-4、BR-MC-5、NF-03。
 """
 
+import pytest
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
@@ -227,3 +229,49 @@ def test_fold_to_level_menu_actions_actually_run(window):
     ed.setPlainText("def a():\n    if x:\n        pass\n    return 1\n")
     window.act_fold_levels[0].trigger()  # 摺疊到第 1 層
     assert len(ed.folds) > 0, "沒有任何區塊被摺疊，選單接線沒真的執行到"
+
+
+# -- 說明視窗：不得講別的平台的事（SRS-006 F-WIN-08 的收尾）------------
+def test_the_help_text_never_mentions_another_platform(window):
+    """替代鍵的說明原本是為 macOS 寫死的：「功能鍵按不到時（不必壓 Fn）」、
+    「Alt+C 在 macOS 會打出 ç」。Windows 也開始有替代鍵之後，這段文字就會
+    對著 Windows 使用者講 Mac 的事。
+
+    GNOME 那句提示同理——原本的條件是「不是 macOS 就顯示」，於是 Windows
+    也看得到。
+    """
+    from stephany import platforms
+
+    text = window._help_text()
+
+    if not platforms.IS_MAC:
+        for word in ("Fn", "ç", "macOS", "⌘", "⌥"):
+            assert word not in text, f"非 macOS 平台的說明不該提到「{word}」"
+    if not platforms.IS_LINUX:
+        assert "GNOME" not in text, "只有 Linux 才需要 GNOME 的提示"
+
+
+def test_the_help_text_lists_every_extra_shortcut_of_this_platform(window):
+    """有補鍵就要講，而且要講對——說明與實際綁定不能各說各話。"""
+    from PySide6.QtGui import QKeySequence
+
+    from stephany import platforms
+    from stephany.ui.mainwindow import EXTRA_SHORTCUT_LABELS
+
+    text = window._help_text()
+    for action_id, sequences in platforms.EXTRA_SHORTCUTS.items():
+        assert EXTRA_SHORTCUT_LABELS[action_id] in text, action_id
+        for sequence in sequences:
+            native = QKeySequence(sequence).toString(
+                QKeySequence.SequenceFormat.NativeText
+            )
+            assert native in text, f"{action_id} 的 {native} 沒出現在說明裡"
+
+
+def test_the_help_text_has_no_extra_section_when_nothing_is_rebound(window):
+    """Linux 什麼都不必補，就不該冒出一個空的「替代鍵」段落。"""
+    from stephany import platforms
+
+    if platforms.EXTRA_SHORTCUTS:
+        pytest.skip("這個平台有補鍵")
+    assert "替代" not in window._help_text()
