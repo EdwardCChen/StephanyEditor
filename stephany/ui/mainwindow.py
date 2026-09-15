@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_toolbar()
         self._build_status_bar()
+        self._disable_menu_role_guessing()  # 必須在所有動作都建好之後
         self._restore_settings()
         if self.macro_store.load_error:  # NF-03：損毀的巨集檔不擋啟動
             self.statusBar().showMessage(self.macro_store.load_error, 8000)
@@ -301,13 +302,26 @@ class MainWindow(QMainWindow):
     # ==================================================================
     # 動作與選單
     # ==================================================================
-    def _act(self, text, slot, shortcut=None, checkable=False, tip=None, action_id=None):
+    def _act(
+        self,
+        text,
+        slot,
+        shortcut=None,
+        checkable=False,
+        tip=None,
+        action_id=None,
+        role=QAction.MenuRole.NoRole,
+    ):
         """建一個動作。
 
         `action_id` 給的是 SRS-005 D-05 那張「平台專屬替代鍵」表的索引：
         跨平台的鍵永遠保留，macOS 只是多綁一個按得到的鍵（BR-MAC-4）。
+
+        `role` 預設是 `NoRole`，而不是 Qt 的預設值 `TextHeuristicRole`——
+        理由見 `_build_actions()` 結尾的說明（SRS-005 BR-MAC-7）。
         """
         a = QAction(text, self)
+        a.setMenuRole(role)
         a.triggered.connect(slot)
         sequences = [QKeySequence(shortcut)] if shortcut else []
         sequences += [
@@ -329,7 +343,12 @@ class MainWindow(QMainWindow):
         self.act_close_tab = self._act(
             "關閉分頁(&W)", lambda: self.close_tab(self.tabs.currentIndex()), "Ctrl+W"
         )
-        self.act_quit = self._act("結束(&Q)", self.close, "Ctrl+Q")
+        # macOS 慣例：「結束」屬於應用程式選單，不是「檔案」選單（F-MAC-06）。
+        # 這個 role 也決定了 ⌘Q 走的是這個動作、會經過 closeEvent，未存檔的
+        # 修改才有機會提示。
+        self.act_quit = self._act(
+            "結束(&Q)", self.close, "Ctrl+Q", role=QAction.MenuRole.QuitRole
+        )
 
         self.act_undo = self._act("復原", lambda: self._ed_call_normal("undo"), "Ctrl+Z")
         self.act_redo = self._act("取消復原", lambda: self._ed_call_normal("redo"), "Ctrl+Y")
@@ -433,15 +452,33 @@ class MainWindow(QMainWindow):
         self.act_help = self._act(
             "欄模式操作說明(&H)", self.show_help, "F1", action_id="help"
         )
-        self.act_about = self._act("關於(&A)...", self.show_about)
+        self.act_about = self._act(
+            "關於(&A)...", self.show_about, role=QAction.MenuRole.AboutRole
+        )
 
-        # macOS 慣例：「關於」與「結束」屬於應用程式選單，不是「檔案」選單。
-        # Qt 是靠英文字樣猜 menuRole 的，本專案選單是中文，猜不到，必須明講
-        # （SRS-005 F-MAC-06）。順帶修掉一個實質 bug：沒有 QuitRole 的動作時，
-        # Qt 自己補的 ⌘Q 走的是 QApplication.quit()，不會觸發 closeEvent，
-        # 未存檔的修改會直接消失。
-        self.act_about.setMenuRole(QAction.MenuRole.AboutRole)
-        self.act_quit.setMenuRole(QAction.MenuRole.QuitRole)
+        # 為什麼每個動作都要明講 menuRole（SRS-005 BR-MAC-7）
+        #
+        # Qt 在 macOS 的預設是 TextHeuristicRole：拿選單文字去比對關鍵字，猜這
+        # 一項該不該搬進應用程式選單。問題是它比對的關鍵字**會跟著翻譯走**——
+        # 載入 qtbase_zh_TW 之後，Qt 眼中的 "Quit" 與 "Exit" 都是「離開」。
+        # 於是「離開欄模式」被判定成 QuitRole，搶走了應用程式選單的結束位置，
+        # 按「結束 Stephany Editor」實際執行的是離開欄模式，程式關不掉。
+        #
+        # 這種猜測只對英文選單有意義，對中文介面只會製造這類無聲的碰撞，
+        # 所以 `_act()` 一律給 NoRole，真正需要角色的兩個在上面明講。
+
+    def _disable_menu_role_guessing(self):
+        """把剩下的動作也釘成 NoRole（SRS-005 BR-MAC-7）。
+
+        `_act()` 建的動作在出生時就設好了角色，但選單標題與分隔線是
+        `addMenu()` / `addSeparator()` 自己生的 QAction，還留在 Qt 的預設
+        `TextHeuristicRole` 上。今天沒有一個撞得到關鍵字，但「整個視窗裡沒有
+        任何一項交給 Qt 去猜」是條看得懂也驗得了的規則，比「目前剛好沒事」
+        可靠。必須在視窗顯示之前做完——原生選單列是那時候才同步的。
+        """
+        for action in self.findChildren(QAction):
+            if action.menuRole() == QAction.MenuRole.TextHeuristicRole:
+                action.setMenuRole(QAction.MenuRole.NoRole)
 
     def _ed_call(self, name, *args, **kwargs):
         """把選單／快速鍵轉給目前分頁的編輯器。
@@ -547,6 +584,7 @@ class MainWindow(QMainWindow):
         group = QActionGroup(self)
         for width in (2, 4, 8):
             a = QAction(f"{width} 欄", self, checkable=True)
+            a.setMenuRole(QAction.MenuRole.NoRole)  # BR-MAC-7
             a.setChecked(width == 4)
             a.triggered.connect(lambda _=False, w=width: self.set_tab_width(w))
             group.addAction(a)

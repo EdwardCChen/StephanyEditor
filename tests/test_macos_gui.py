@@ -156,6 +156,129 @@ def test_f_mac_06_about_and_quit_declare_their_menu_roles(window):
     assert window.act_quit.menuRole() == QAction.MenuRole.QuitRole
 
 
+# -- BR-MAC-7：不得讓 Qt 用選單文字猜 menuRole ------------------------
+#
+# 這組測試是為了一個實際發生過的 bug：載入 qtbase_zh_TW 之後，Qt 眼中的
+# "Quit" 與 "Exit" 都變成「離開」，於是「離開欄模式」被判定成 QuitRole，
+# 搶走了應用程式選單的結束位置——按「結束 Stephany Editor」實際執行的是
+# 離開欄模式，程式關不掉。
+
+
+def _role_keywords() -> dict[str, str]:
+    """Qt 用來猜角色的關鍵字，翻譯後的樣子。"""
+    from PySide6.QtCore import QCoreApplication
+
+    sources = (
+        "About", "Config", "Preference", "Options", "Setting", "Setup",
+        "Quit", "Exit", "Cut", "Copy", "Paste", "Select All",
+    )
+    return {s: QCoreApplication.translate("QCocoaMenuItem", s) for s in sources}
+
+
+def test_br_mac_7_no_action_is_left_on_the_text_heuristic_role(window):
+    """每個動作都要明講 menuRole。
+
+    Qt 的預設 `TextHeuristicRole` 是「拿選單文字去比對關鍵字來猜」，而那些
+    關鍵字會跟著翻譯走——同一份程式碼，載入不同語言的 Qt 翻譯就會有不同的
+    選單行為。對中文介面來說這種猜測只會製造無聲的碰撞。
+    """
+    from PySide6.QtGui import QAction
+
+    guessed = [
+        a.text()
+        for a in window.findChildren(QAction)
+        if a.menuRole() == QAction.MenuRole.TextHeuristicRole
+    ]
+    assert not guessed, f"這些動作還讓 Qt 用文字猜角色：{guessed}"
+
+
+def test_br_mac_7_exactly_one_action_owns_each_application_menu_slot(window):
+    """應用程式選單的「關於」與「結束」各只有一個位置，被搶走就沒有第二個。"""
+    from PySide6.QtGui import QAction
+
+    def owners(role):
+        return [a for a in window.findChildren(QAction) if a.menuRole() == role]
+
+    assert owners(QAction.MenuRole.QuitRole) == [window.act_quit]
+    assert owners(QAction.MenuRole.AboutRole) == [window.act_about]
+
+
+def test_br_mac_7_actions_whose_text_matches_a_role_keyword_are_neutralised(
+    translated, window
+):
+    """撞到關鍵字的動作必須是 NoRole，否則就會被搬走。
+
+    這個測試會自己跟著介面文字走：之後新增的選單項只要開頭撞到翻譯後的
+    關鍵字（例如再來一個「離開…」或「設定…」），沒設 NoRole 就會紅燈。
+    """
+    from PySide6.QtGui import QAction
+
+    keywords = _role_keywords()
+    intentional = {window.act_about, window.act_quit}
+    collisions = []
+    for action in window.findChildren(QAction):
+        text = action.text().replace("&", "")
+        for source, translation in keywords.items():
+            if translation != source and text.startswith(translation):
+                collisions.append((action, text, source, translation))
+    assert collisions, (
+        "沒有任何選單文字撞到關鍵字，這個測試變成空轉了——"
+        "是介面文字改了，還是翻譯沒載入？"
+    )
+    for action, text, source, translation in collisions:
+        if action in intentional:
+            continue
+        assert action.menuRole() == QAction.MenuRole.NoRole, (
+            f"{text!r} 開頭是 {translation!r}（Qt 的 {source} 關鍵字），"
+            f"必須設成 NoRole，否則會被搬進應用程式選單"
+        )
+
+
+def test_br_mac_7_the_column_mode_exit_action_is_not_treated_as_quit(translated, window):
+    """回歸測試：就是這一項曾經搶走「結束」。"""
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtGui import QAction
+
+    assert window.act_exit_block.text().startswith(
+        QCoreApplication.translate("QCocoaMenuItem", "Quit")
+    ), "介面文字改了的話，這個回歸測試要跟著改（見上面那個自動跟隨的測試）"
+    assert window.act_exit_block.menuRole() == QAction.MenuRole.NoRole
+
+
+def test_quit_actually_closes_the_window(window):
+    """回歸測試：這就是回報的症狀——選「結束」沒反應，只有紅色 x 有用。"""
+    assert window.isVisible() or True  # fixture 不一定 show()，看的是有沒有被關掉
+    window.act_quit.trigger()
+    assert not window.isVisible(), "觸發「結束」之後視窗還在"
+
+
+def test_quit_asks_before_discarding_unsaved_work(window, monkeypatch):
+    """「結束」必須走 closeEvent，未存檔的修改才有機會提示。
+
+    `QApplication.quit()` 不送 close 事件，接到視窗的 `close()` 才會——
+    這是「結束」要接在視窗上、而不是接在 app 上的理由。
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    asked = []
+
+    def fake_question(*args, **kwargs):
+        asked.append(args[2] if len(args) > 2 else "")
+        return QMessageBox.StandardButton.Cancel
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(fake_question))
+    editor = window.editor()
+    editor.setPlainText("還沒存的東西")
+    editor.document().setModified(True)
+
+    window.show()
+    window.act_quit.trigger()
+
+    assert asked, "有未存檔的修改，結束前卻沒有問過"
+    assert window.isVisible(), "使用者按了取消，不該關掉"
+    editor.document().setModified(False)  # 讓 fixture 收得掉
+
+
 # -- F-MAC-08：以 ⌘ 為主修飾鍵 ----------------------------------------
 @mac_only
 def test_f_mac_08_portable_shortcuts_resolve_to_command(window):

@@ -61,6 +61,7 @@
 | **D-07** | Finder 開檔以 `QFileOpenEvent` 承接，與 argv 走同一條 `open_path()` | macOS 的檔案關聯本來就不經 argv；兩條入口收斂到同一個函式，行為才不會分岔 |
 | **D-08** | 平台差異一律集中在 `stephany/platforms.py`，不得散落 `sys.platform` 判斷；`core/` 仍然不得相依 Qt | 與 NF-01「領域核心與 UI 框架分離」同一個理由：差異集中在一處才看得出「這個專案在各平台上到底有幾件事不一樣」 |
 | **D-09** | 載入 Qt 內附的 `qtbase_zh_TW` 翻譯，而不是自己去改那幾個選單項目的字 | 那些項目是 Qt 在 `QCocoaMenuItem` 裡用 `QCoreApplication::translate("MAC_APPLICATION_MENU", ...)` 組出來的，本來就設計成由翻譯檔提供；Qt 的繁中翻譯已經有這七個字串（實測涵蓋 About／Quit／Services／Hide／Hide Others／Show All／Preferences），順帶也把 `QMessageBox` 的按鈕變成「確定／取消」。翻譯檔隨 Qt 安裝，不增加相依 |
+| **D-10** | 「結束」接在主視窗的 `close()` 上，不接 `QApplication.quit()` | `quit()` 不送 close 事件，未存檔的修改會無聲消失。接 `close()` 才會走 `closeEvent` → `_maybe_save()`，而關掉最後一個視窗本來就會結束程式（`quitOnLastWindowClosed`）。已實測：乾淨時正常結束，有未存檔修改時會攔下並詢問 |
 
 ### D-01 的實測數據
 
@@ -93,6 +94,7 @@
 | F-MAC-10 | 建構腳本不需 root、不需安裝 py2app／PyInstaller／Xcode 專案 |
 | F-MAC-11 | 移除即「把 .app 丟垃圾桶」，不留系統層級殘檔（設定檔除外） |
 | F-MAC-12 | 應用程式選單（關於／服務／隱藏／結束）與標準對話框按鈕須與程式其餘介面同為繁體中文 |
+| F-MAC-13 | 應用程式選單的「結束」須真的結束程式，且須經過 `closeEvent`——未存檔的修改要先問過使用者 |
 
 ## 4. 業務規則
 
@@ -104,6 +106,7 @@
 | **BR-MAC-4** | 各平台共用同一組快速鍵定義，macOS 只能「增加」替代鍵，不得另建一份完整對映表（D-05） |
 | **BR-MAC-5** | `CFBundleIdentifier` 與 Linux 的 `app_id`／`.desktop` 檔名須同源於 `stephany-editor`，不得各自取名 |
 | **BR-MAC-6** | 字型偏好清單須包含「字型家族 + 樣式名稱」：`Osaka` 的預設樣式比例是 1.5，只有 `Regular-Mono` 樣式才是 2.0，只記家族名稱會挑到錯的那個 |
+| **BR-MAC-7** | 每個 `QAction` 都必須明講 `menuRole`，不得留在 Qt 的預設 `TextHeuristicRole` | Qt 是拿選單文字去比對關鍵字來猜這一項該不該搬進應用程式選單，而**那些關鍵字會跟著翻譯走**（D-09）：載入 `qtbase_zh_TW` 後 Qt 眼中的 "Quit" 與 "Exit" 都是「離開」，於是「離開欄模式」被判成 QuitRole、搶走應用程式選單的結束位置，程式關不掉。這種猜測只對英文選單有意義，對中文介面只會製造無聲的碰撞 |
 
 ## 5. 非功能需求
 
