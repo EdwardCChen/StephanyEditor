@@ -145,6 +145,11 @@ jobs:
     # CI 綠燈但什麼都沒驗到（D-W9）。
     name: Windows（原生平台外掛）
     runs-on: windows-latest
+    env:
+      # runner 是 en-US 映像，主控台字碼頁是 cp1252，一個中文字都編不出來。
+      # 腳本自己會轉 UTF-8，但 pytest 的中文 skip 理由（-rs）與這裡的
+      # 內嵌 python -c 也要顧到（SRS-006 NF-W4）。
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -183,6 +188,11 @@ jobs:
     # 不需要系統管理員的情況下跑得起來，並產出符合 D-W1／D-W2 的結構。
     name: Windows 安裝建構
     runs-on: windows-latest
+    env:
+      # runner 是 en-US 映像，主控台字碼頁是 cp1252，一個中文字都編不出來。
+      # 腳本自己會轉 UTF-8，但 pytest 的中文 skip 理由（-rs）與這裡的
+      # 內嵌 python -c 也要顧到（SRS-006 NF-W4）。
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

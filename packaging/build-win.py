@@ -384,6 +384,39 @@ def write_shortcut(path: Path, target: Path, arguments: str, icon: Path,
         _ole32.CoUninitialize()
 
 
+def read_shortcut_target(path: Path) -> tuple[str, str]:
+    """讀回 .lnk 的目標與參數。
+
+    與 `read_shortcut_app_user_model_id()` 一樣，COM 的初始化與釋放都包在
+    這裡——呼叫端（包括測試）不該自己裸呼叫 COM，否則在沒有人初始化過
+    COM 的行程裡會拿到 CO_E_NOTINITIALIZED。
+    """
+    _GET_PATH, _GET_ARGUMENTS, _PERSIST_LOAD = 3, 10, 5
+    _ole32.CoInitialize(None)
+    link = persist = None
+    try:
+        link = c_void_p()
+        _ole32.CoCreateInstance(
+            byref(GUID(CLSID_SHELL_LINK)), None, 1,
+            byref(GUID(IID_SHELL_LINK_W)), byref(link),
+        )
+        persist = _query_interface(link, IID_PERSIST_FILE)
+        _vcall(persist, _PERSIST_LOAD, c_wchar_p, DWORD)(persist, str(path), 0)
+
+        target = ctypes.create_unicode_buffer(1024)
+        _vcall(link, _GET_PATH, c_wchar_p, ctypes.c_int, c_void_p, ctypes.c_int)(
+            link, target, 1024, None, 0
+        )
+        arguments = ctypes.create_unicode_buffer(1024)
+        _vcall(link, _GET_ARGUMENTS, c_wchar_p, ctypes.c_int)(
+            link, arguments, 1024
+        )
+        return target.value, arguments.value
+    finally:
+        _release(persist, link)
+        _ole32.CoUninitialize()
+
+
 def read_shortcut_app_user_model_id(path: Path) -> str | None:
     """讀回 .lnk 上的 AppUserModelID——寫進去了沒有，直接問 Windows。"""
     _PERSIST_LOAD, _STORE_GET_VALUE = 5, 5

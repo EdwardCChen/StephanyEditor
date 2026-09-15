@@ -546,10 +546,12 @@ def test_f_win_01_the_shortcut_carries_the_app_user_model_id(build_win, tmp_path
 def test_the_shortcut_points_at_the_executable_with_the_right_arguments(
     build_win, tmp_path
 ):
-    """走 -m stephany，參數才會完整交給 argparse（D-W2）。"""
-    import ctypes
-    from ctypes import byref, c_void_p, c_wchar_p
+    """走 -m stephany，參數才會完整交給 argparse（D-W2）。
 
+    讀回的動作交給 build-win.py 自己的 helper：測試裸呼叫 COM 的話，在
+    沒有 QApplication 幫忙初始化 COM 的行程裡（例如 CI 只跑這個檔案時）
+    會直接 CO_E_NOTINITIALIZED——這正是本測試以前踩到的坑。
+    """
     lnk = tmp_path / "捷徑.lnk"
     exe = tmp_path / "stephany-editor.exe"
     exe.write_bytes(b"")
@@ -557,25 +559,9 @@ def test_the_shortcut_points_at_the_executable_with_the_right_arguments(
     icon.write_bytes(b"")
     build_win.write_shortcut(lnk, exe, "-m stephany", icon, BUNDLE_ID)
 
-    # 讀回 target 與 arguments
-    link = c_void_p()
-    build_win._ole32.CoCreateInstance(
-        byref(build_win.GUID(build_win.CLSID_SHELL_LINK)), None, 1,
-        byref(build_win.GUID(build_win.IID_SHELL_LINK_W)), byref(link),
-    )
-    persist = build_win._query_interface(link, build_win.IID_PERSIST_FILE)
-    build_win._vcall(persist, 5, c_wchar_p, ctypes.wintypes.DWORD)(
-        persist, str(lnk), 0
-    )
-    buf = ctypes.create_unicode_buffer(1024)
-    build_win._vcall(link, 3, c_wchar_p, ctypes.c_int, c_void_p, ctypes.c_int)(
-        link, buf, 1024, None, 0
-    )  # GetPath
-    assert buf.value.lower() == str(exe).lower()
-
-    args = ctypes.create_unicode_buffer(1024)
-    build_win._vcall(link, 10, c_wchar_p, ctypes.c_int)(link, args, 1024)
-    assert args.value == "-m stephany"
+    target, arguments = build_win.read_shortcut_target(lnk)
+    assert target.lower() == str(exe).lower()
+    assert arguments == "-m stephany"
 
 
 @windows_only
