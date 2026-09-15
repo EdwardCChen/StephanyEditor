@@ -213,3 +213,17 @@ def test_f_pk_01_window_icon_is_loaded(app):
 
     configure_identity(app)
     assert not app.windowIcon().isNull()
+
+
+# -- 選單接線：帶具名參數的命令 ---------------------------------------
+def test_fold_to_level_menu_actions_actually_run(window):
+    """「摺疊到指定層級」是唯一用具名參數呼叫 perform() 的選單項目。
+
+    `_ed_call(name, *args)` 沒有收 `**kwargs`，而選單是用
+    `_ed_call("perform", "fold_level", level=n)` 呼叫的——按下去會丟
+    TypeError，Alt+1 ~ Alt+8 在三個平台上全都是壞的。
+    """
+    ed = window.editor()
+    ed.setPlainText("def a():\n    if x:\n        pass\n    return 1\n")
+    window.act_fold_levels[0].trigger()  # 摺疊到第 1 層
+    assert len(ed.folds) > 0, "沒有任何區塊被摺疊，選單接線沒真的執行到"

@@ -443,22 +443,28 @@ class MainWindow(QMainWindow):
         self.act_about.setMenuRole(QAction.MenuRole.AboutRole)
         self.act_quit.setMenuRole(QAction.MenuRole.QuitRole)
 
-    def _ed_call(self, name, *args):
+    def _ed_call(self, name, *args, **kwargs):
+        """把選單／快速鍵轉給目前分頁的編輯器。
+
+        `perform()` 的命令參數是具名的（`perform("fold_level", level=0)`），
+        所以這裡必須連 `**kwargs` 一起轉——少了它，「摺疊到指定層級」
+        按下去會丟 TypeError。
+        """
         ed = self.editor()
         if ed is not None:
-            getattr(ed, name)(*args)
+            getattr(ed, name)(*args, **kwargs)
 
     def _fold_call(self, command: str):
         ed = self.editor()
         if ed is not None and not ed.perform(command):
             self.statusBar().showMessage("這一行沒有可摺疊的區塊", 2000)
 
-    def _ed_call_normal(self, name, *args):
+    def _ed_call_normal(self, name, *args, **kwargs):
         """需要一般（非矩形）游標語意的動作，先離開欄模式再執行。"""
         ed = self.editor()
         if ed is not None:
             ed.exit_block_mode()
-            getattr(ed, name)(*args)
+            getattr(ed, name)(*args, **kwargs)
 
     def _build_menus(self):
         bar = self.menuBar()
