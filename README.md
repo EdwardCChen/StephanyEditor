@@ -2,7 +2,7 @@
 
 [![授權](https://img.shields.io/badge/授權-GPL--3.0--or--later-blue)](LICENSE)
 
-Ubuntu 與 macOS 桌面上的文字編輯器，重點是**中文能正確使用的欄（直行）模式**
+Ubuntu、macOS 與 Windows 桌面上的文字編輯器，重點是**中文能正確使用的欄（直行）模式**
 —— 也就是 Notepad++ 的 Column Mode，但把全形字的寬度處理對。
 
 ![欄模式](docs/column-mode.png)
@@ -53,6 +53,33 @@ sudo ln -sf "/Applications/Stephany Editor.app/Contents/Resources/bin/stephany-e
 xattr -dr com.apple.quarantine "/Applications/Stephany Editor.app"
 ```
 
+### Windows
+
+```powershell
+python packaging\build-win.py --install
+```
+
+會建到 `dist\StephanyEditor`，再安裝到 `%LOCALAPPDATA%\Programs\StephanyEditor`，
+並在「開始」功能表建立捷徑、把本程式登記到檔案的「開啟方式」清單。
+省略 `--install` 就只建不裝。全部都在你自己的使用者目錄與 `HKCU` 底下，
+**不需要系統管理員，也不會跳 UAC**。
+
+移除：
+
+```powershell
+python packaging\build-win.py --uninstall
+```
+
+會刪掉安裝目錄、捷徑與登錄機碼；`%APPDATA%\StephanyEditor` 裡的設定與巨集
+保留。
+
+需要 Python 3.10+。只用 `python -m venv` 與標準函式庫，**不需要 PyInstaller、
+cx_Freeze 或 Inno Setup**。終端機指令把安裝目錄加進 `PATH` 即可：
+
+```powershell
+setx PATH "%PATH%;%LOCALAPPDATA%\Programs\StephanyEditor"
+```
+
 ## 從原始碼執行
 
 ```bash
@@ -61,23 +88,35 @@ xattr -dr com.apple.quarantine "/Applications/Stephany Editor.app"
 ./install-desktop.sh      # Ubuntu：只註冊桌面項目，不安裝套件
 ```
 
+Windows 沒有 `run.sh`（那是 bash 腳本），直接用模組跑：
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m stephany samples\demo.txt
+```
+
 需求：Python 3.10+。字型在 Ubuntu 上建議 `Noto Sans Mono CJK TC`
 （`sudo apt install fonts-noto-cjk`）；macOS 一般不必裝任何東西，程式會挑到系統
-內建的 `Osaka Regular-Mono`（理由見下面「中文寬度是怎麼處理的」）。
+內建的 `Osaka Regular-Mono`；繁中／簡中／日文語系的 Windows 也不必裝
+（會挑到 `細明體`／`NSimSun`／`MS Gothic`）。理由都見下面「中文寬度是怎麼處理的」。
 
 ## 跨平台的快速鍵
 
 快速鍵只維護一份，Qt 會在 macOS 自動把 `Ctrl` 對映成 `⌘`——底下表格寫
 `Ctrl` 的地方，在 Mac 上按的就是 `⌘`，`Alt` 則是 `⌥`。
 
-有兩類鍵在 macOS 上不好按，所以**另外多綁了一個**（原本的鍵仍然有效）：
+有些鍵在 macOS 或 Windows 上按不到，所以**另外多綁了一個**（原本的鍵仍然有效）：
 
-| 動作 | 跨平台 | macOS 另可用 | 為什麼 |
+| 動作 | 跨平台 | 另可用 | 哪個平台、為什麼 |
 |---|---|---|---|
-| 切換書籤 | `Ctrl`+`F2` | `⇧`+`⌘`+`M` | MacBook 預設要壓 `Fn` 才送得出功能鍵 |
-| 下一個／上一個書籤 | `F2` / `Shift`+`F2` | `⌥`+`⌘`+`↓` / `↑` | 同上 |
-| 欄位編輯器 | `Alt`+`C` | `⇧`+`⌘`+`C` | `⌥C` 在 macOS 會直接打出 `ç` |
-| 操作說明 | `F1` | `⌘`+`?` | 同功能鍵 |
+| 切換書籤 | `Ctrl`+`F2` | `⇧`+`⌘`+`M` | macOS：MacBook 預設要壓 `Fn` 才送得出功能鍵 |
+| 下一個／上一個書籤 | `F2` / `Shift`+`F2` | `⌥`+`⌘`+`↓` / `↑` | macOS：同上 |
+| 操作說明 | `F1` | `⌘`+`?` | macOS：同功能鍵 |
+| 欄位編輯器 | `Alt`+`C` | `Ctrl`／`⌘`+`Shift`+`C` | **macOS**：`⌥C` 會直接打出 `ç`；**Windows**：被選單列的 `編碼(&C)` 助憶鍵吃掉 |
+
+最後一列是同一個功能在兩個平台各自壞掉、卻可以用同一個替代鍵解決的例子——
+所以三個平台的 `Ctrl/⌘`+`Shift`+`C` 都是欄位編輯器。
 
 ## 欄（直行）模式
 
@@ -162,7 +201,31 @@ CJK 字型遞補算圖的（寬度固定等於字級），而它們的半形寬�
 Osaka 是隨 macOS 安裝的字型資產，一般桌面安裝都有；少數精簡過的映像（例如
 CI runner）沒有，這時會退回 Menlo 並在狀態列出現紅字警告，自己裝一個就好。
 
-裝了 `Sarasa Mono TC` 或 `Noto Sans Mono CJK TC` 的話會優先用那些。
+**Windows 也是一個都不符合**——一定裝得到的那幾個等寬字型全部不合格：
+
+| 字型（12pt） | 半形寬 | 中文寬 | 比例 |
+|---|---|---|---|
+| Lucida Console | 9.64 | 16.00 | 1.66 |
+| Courier New | 9.59 | 16.00 | 1.67 |
+| Cascadia Mono | 9.38 | 16.00 | 1.71 |
+| Consolas | 8.80 | 16.00 | 1.82 |
+| **PMingLiU** | 7.52 | 16.00 | **2.13** ⚠ |
+| **細明體 / `MingLiU`** | **8.00** | **16.00** | **2.00** ✅ |
+| **`NSimSun`／`MS Gothic`** | **8.00** | **16.00** | **2.00** ✅ |
+
+合格的是 Windows 的**語言補充字型**：繁中的 `細明體`（`MingLiU`）、簡中的
+`NSimSun`、日文的 `MS Gothic`，這三種語系的 Windows 預設就有。程式依
+繁中 → 簡中 → 日文的順序挑。
+
+注意 `PMingLiU` 那一列：只比 `MingLiU` 多一個 `P`（proportional，半形字不是
+固定寬），比例就變成 2.13。同理還有 `MS PGothic`——名字太像，所以這條規則
+是寫成測試擋著的，不是靠 code review。
+
+一台乾淨的 en-US Windows 可能一個語言補充字型都沒有，這時會退回 `Consolas`
+並在狀態列出現紅字警告。到「設定 → 時間與語言 → 語言與地區」把中文的
+語言功能裝起來，或自己裝 `Noto Sans Mono CJK TC` 都可以。
+
+裝了 `Sarasa Mono TC` 或 `Noto Sans Mono CJK TC` 的話，三個平台都會優先用那些。
 
 ## 書籤
 
@@ -250,6 +313,11 @@ stephany/
     └── linenumbers.py   # 行號欄、書籤標記、摺疊箭號
 ```
 
+打包腳本各平台一支：`packaging/build-deb.sh`（Ubuntu）、
+`packaging/build-app.sh`（macOS）、`packaging/build-win.py`（Windows），
+圖示則三個平台共用 `packaging/make-icons.py` 從同一個 SVG 產生
+（hicolor PNG／`.iconset`／`.ico`）。
+
 CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 import 到 Qt——
 讓「領域核心與 UI 框架分離」這件事持續被驗證，而不只是寫在文件裡。
 
@@ -269,7 +337,7 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
 .venv/bin/python -m pytest tests -q
 ```
 
-321 個測試，涵蓋：
+388 個測試，涵蓋：
 
 - **寬度與矩形**：切到全形字、切到 TAB、短行不被撐長、剪下再貼回可還原
 - **書籤**：文件增減行時的平移、被刪除的行、繞回式跳轉、連續區間合併
@@ -282,6 +350,10 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
 - **GUI**：輸入法送字、矩形複製貼上、undo、跨分頁共用錄製器、選單動作接線
 - **macOS**：`⌥`+字母不得被當成輸入、`Ctrl` 確實對映成 `⌘`、
   「關於／結束」的選單角色、Finder 開檔事件
+- **Windows**：字型比例跨 9/12/18/24pt 與 19 個字元都是 2.0、`PMingLiU`
+  確實不對齊（規則不是憑空訂的）、`Alt`+`C` 確實被選單助憶鍵吃掉、
+  `AppUserModelID` 讀得回來、捷徑與登錄機碼寫進去再讀回來、
+  建好的安裝樹沒有建構期殘留
 
 ## 桌面整合
 
@@ -326,6 +398,31 @@ Finder 雙擊開檔也不走 `argv`，而是送 `QFileOpenEvent`；事件可能�
 `qtbase_zh_TW`，那幾項才會跟其餘介面一樣是中文；`QMessageBox` 的「確定／取消」
 也是同一批字串，所以各平台都一起受惠。
 
+### Windows 是同一個問題的第三種版本
+
+Windows 認的是**執行檔路徑**——而從原始碼跑的話，所有 Python 程式的執行檔
+路徑都是同一個 `pythonw.exe`，於是工作列把本程式跟其他 Python 程式分到同一組，
+工作管理員也顯示成 `pythonw`。
+
+所以安裝時把 venv 的 `pythonw.exe` 複製成 `stephany-editor.exe`（GUI，不開主控台）、
+`python.exe` 複製成 `stephany-editor-cli.exe`（終端機用），另外再以
+`SetCurrentProcessExplicitAppUserModelID` 宣告一次身分，並把**同一個**識別碼寫進
+「開始」功能表捷徑的 `System.AppUserModel.ID`——釘選的捷徑與執行中的視窗要被
+認成同一個應用程式，靠的就是這兩邊相同。
+
+| 平台 | 身分由誰認定 | 宣告在哪 |
+|---|---|---|
+| Linux | 桌面環境比對 `.desktop` | `setDesktopFileName()` + `.desktop` 檔名 |
+| macOS | `NSBundle` 看執行檔路徑 | `.app` 的 `Info.plist` |
+| Windows | 執行檔路徑 + AppUserModelID | 專屬 `.exe` + 捷徑的 `System.AppUserModel.ID` |
+
+三者的識別碼同源於 `stephany-editor`，由測試把關。
+
+跟 macOS 不同的是，Windows **不需要** `sitecustomize` 那套 hack：改名後的直譯器
+仍然認得自己的 venv，而且命令列參數完整保留（macOS 之所以要 hack，是因為
+LaunchServices 啟動 `.app` 時不給任何參數）。所以進入點就是正常的
+`stephany-editor.exe -m stephany 檔案.txt`，檔案關聯也直接用這個命令。
+
 ## 開發狀態
 
 | 模組 | 狀態 |
@@ -340,7 +437,7 @@ Finder 雙擊開檔也不走 `argv`，而是送 `QFileOpenEvent`；事件可能�
 | 深色／淺色主題 | ✅ 完成 |
 | deb 打包與桌面整合（SRS-004 F-PK） | ✅ 完成 |
 | macOS 支援與 .app 打包（SRS-005 F-MAC） | ✅ 完成 |
-| Windows 支援 | ⬜ 未規劃（`platforms.py` 已預留分支） |
+| Windows 支援與安裝（SRS-006 F-WIN） | ✅ 完成 |
 | 檔案比對 | ⬜ 未規劃 |
 | 工作階段還原 | ⬜ 未規劃 |
 | 外掛系統 | ⬜ 未規劃 |
