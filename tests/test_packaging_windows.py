@@ -489,3 +489,44 @@ def test_delete_key_tree_is_quiet_about_a_key_that_is_not_there(build_win):
         winreg.HKEY_CURRENT_USER,
         r"Software\Classes\Applications\stephany-editor-NOPE.exe",
     ) is False
+
+
+# ======================================================================
+# NF-W3：CI 要真的在 Windows 上跑
+# ======================================================================
+CI = ROOT / ".github" / "workflows" / "ci.yml"
+
+
+def test_nf_w3_ci_runs_the_tests_on_a_windows_runner():
+    """字型度量、選單助憶鍵搶快速鍵、AppUserModelID——這些差異在 Linux 上
+    跑一百次也不會發現，跟 SRS-005 NF-03 要求 macOS runner 是同一個理由。
+    """
+    text = CI.read_text(encoding="utf-8")
+    assert "windows-latest" in text
+
+
+def test_nf_w3_the_windows_job_does_not_use_the_offscreen_plugin():
+    """Windows 的 offscreen 字型資料庫是空的（D-W9）：設了它，字型測試會
+    安靜地全部 skip，CI 綠燈但什麼都沒驗到。
+
+    做法是逐一檢查每個 job 區塊：Linux 的兩個 job 需要 offscreen，
+    Windows 的不行。
+    """
+    import re
+
+    text = CI.read_text(encoding="utf-8")
+    # 以兩個空白縮排的 job 名稱切開
+    blocks = re.split(r"\n  (?=[a-z0-9-]+:\n)", text)
+    windows_blocks = [b for b in blocks if "windows-latest" in b]
+    assert windows_blocks, "找不到 Windows job"
+    for block in windows_blocks:
+        assert "QT_QPA_PLATFORM: offscreen" not in block, (
+            "Windows job 不得設 offscreen（SRS-006 D-W9）"
+        )
+
+
+def test_the_windows_job_builds_the_installation_too():
+    """F-WIN-10：建構腳本要能在乾淨的 Windows 上、沒有額外工具、
+    不需提權的情況下跑起來——這件事只有 CI 驗得到。"""
+    text = CI.read_text(encoding="utf-8")
+    assert "build-win.py" in text

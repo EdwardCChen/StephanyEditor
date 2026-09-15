@@ -38,6 +38,7 @@ jobs:
             tests/test_folding.py \
             tests/test_packaging.py \
             tests/test_packaging_macos.py \
+            tests/test_packaging_windows.py \
             tests/test_platform.py \
             -q -rs
 
@@ -133,3 +134,80 @@ jobs:
       - name: 終端機進入點可以執行（F-MAC-05）
         run: |
           "dist/Stephany Editor.app/Contents/Resources/bin/stephany-editor" --version
+
+  windows:
+    # SRS-006 NF-W3：字型度量、選單助憶鍵搶走 Alt+C、AppUserModelID——
+    # 這些差異在 Linux 上跑一百次也不會發現，與 SRS-005 NF-03 要求 macOS
+    # runner 是同一個理由。
+    #
+    # 這個 job 刻意**不設** QT_QPA_PLATFORM：Windows 的 offscreen 外掛
+    # 字型資料庫是空的（實測 0 筆），設了它字型測試會安靜地全部 skip，
+    # CI 綠燈但什麼都沒驗到（D-W9）。
+    name: Windows（原生平台外掛）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: 安裝 Python 相依套件
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+      - name: 安裝中文補充字型
+        # runner 是 en-US 映像，預設沒有 MingLiU／NSimSun／MS Gothic 這些
+        # 語言補充字型，字型不變量的測試會因此 skip。裝上去讓它真的跑得到。
+        # 裝不起來也不擋 CI——那些測試會自己 skip，不會變成假紅燈。
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          foreach ($name in @(
+              "Language.Fonts.Hant~~~und-US~0.0.1.0",
+              "Language.Fonts.Hans~~~und-US~0.0.1.0",
+              "Language.Fonts.Jpan~~~und-US~0.0.1.0")) {
+            try {
+              Add-WindowsCapability -Online -Name $name -ErrorAction Stop
+              Write-Host "已安裝 $name"
+            } catch {
+              Write-Host "略過 $name：$_"
+            }
+          }
+      - name: 這台 runner 看得到哪些偏好字型
+        run: |
+          python -c "import sys; from PySide6.QtGui import QFontDatabase, QGuiApplication; app = QGuiApplication(sys.argv[:1]); from stephany import platforms; families = QFontDatabase.families(); print(f'字型家族總數：{len(families)}'); [print(('有' if f in families else '無'), f, '/', s or '預設樣式') for f, s in platforms.PREFERRED_FONTS]"
+      - name: 執行全套測試
+        run: python -m pytest tests -q -rs
+
+  windows-build:
+    # F-WIN-10：建構腳本必須在乾淨的 Windows 上、沒有任何額外打包工具、
+    # 不需要系統管理員的情況下跑得起來，並產出符合 D-W1／D-W2 的結構。
+    name: Windows 安裝建構
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: 建置安裝目錄
+        run: python packaging/build-win.py
+      - name: 驗證結構
+        shell: pwsh
+        run: |
+          $dist = "dist/StephanyEditor"
+          # D-W1：要有自己的執行檔，不能只靠 pythonw
+          if (-not (Test-Path "$dist/Scripts/stephany-editor.exe")) { throw "缺少專屬執行檔" }
+          if (-not (Test-Path "$dist/Scripts/stephany-editor-cli.exe")) { throw "缺少終端機執行檔" }
+          if (-not (Test-Path "$dist/stephany-editor.ico")) { throw "缺少圖示" }
+          if (-not (Test-Path "$dist/pyvenv.cfg")) { throw "venv 標記不見了" }
+          # BR-WIN-2：不得帶進建構期的殘留
+          if (Test-Path "$dist/Lib/site-packages/pip") { throw "pip 不該被打包進去" }
+          if (Test-Path "$dist/Include") { throw "venv 鷹架不該被打包進去" }
+          if (Get-ChildItem $dist -Recurse -Filter "__pycache__" -Directory) { throw "有 __pycache__ 殘留" }
+          if (Get-ChildItem "$dist/Scripts" -Filter "pyside6-*.exe") { throw "開發工具不該被打包進去" }
+      - name: 終端機進入點可以執行（F-WIN-05）
+        run: dist/StephanyEditor/Scripts/stephany-editor-cli.exe -m stephany --version
+      - name: 建構期的測試（會檢查建出來的那棵樹）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+          python -m pytest tests/test_packaging_windows.py -q -rs
