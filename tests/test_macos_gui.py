@@ -20,12 +20,9 @@
 標了 `skipif` 的才是真的只有 macOS 才驗得到的部分。
 """
 
-import os
 from pathlib import Path
 
 import pytest
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import (  # noqa: E402

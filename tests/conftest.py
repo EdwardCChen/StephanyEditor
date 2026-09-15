@@ -17,7 +17,12 @@
 """測試共用設定。
 
 GUI 測試必須在無視窗環境下跑（CI、以及本機的批次執行），所以在任何
-Qt 模組被 import 之前先把平台外掛設成 offscreen。
+Qt 模組被 import 之前先把平台外掛設成 offscreen——**Windows 除外**。
+
+Windows 的 offscreen 外掛不載入系統字型：實測 `QFontDatabase.families()`
+回傳 0 筆（Linux 與 macOS 都不是這樣）。在那底下，所有字型不變量的測試
+都會走 `pytest.skip`，CI 顯示全綠，但欄模式最重要的前提「中文 = 半形 × 2」
+一次都沒被驗過。Windows 因此改用原生平台外掛（SRS-006 D-W9）。
 
 另外處理 PySide6 的關閉競態：如果測試結束時還有存活的 widget（尤其是
 帶著執行中 QTimer 的），直譯器關閉時 QApplication 可能比 widget 先被
@@ -30,7 +35,10 @@ from __future__ import annotations
 import gc
 import os
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# 這個判斷刻意不 import stephany.platforms：conftest 會在收集測試前執行，
+# 保持它只相依標準函式庫最不容易出事。判斷式與 platforms.IS_WINDOWS 相同。
+if os.name != "nt":
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 

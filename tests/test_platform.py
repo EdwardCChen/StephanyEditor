@@ -287,3 +287,45 @@ def test_config_dir_still_works_without_appdata(monkeypatch):
     monkeypatch.delenv(platforms.CONFIG_DIR_ENV, raising=False)
     monkeypatch.delenv("APPDATA", raising=False)
     assert platforms.config_dir().name == "StephanyEditor"
+
+
+def test_d_w9_only_conftest_decides_the_qt_platform_plugin():
+    """平台外掛的選擇必須只有一個地方講得算（SRS-006 D-W9）。
+
+    測試模組若自己 `setdefault("QT_QPA_PLATFORM", "offscreen")`，在
+    Windows 上就會把 conftest 刻意避開的 offscreen 又設回去——而且因為
+    模組是照字母序 import 的，`test_macos_gui` 會先於 `test_windows_gui`
+    生效，症狀是「單獨跑那個檔會過、跑全套就 skip」，很難追。
+    """
+    import ast
+
+    def sets_the_plugin(node: ast.AST) -> bool:
+        """`os.environ["QT_QPA_PLATFORM"] = ...` 或 `.setdefault("QT_QPA_PLATFORM", ...)`。
+
+        用 ast 而不是抓字串，才不會被註解、docstring（例如本測試自己的）
+        或斷言裡提到的同一個名字誤判。
+        """
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in ("setdefault", "update"):
+                return any(
+                    isinstance(a, ast.Constant) and a.value == "QT_QPA_PLATFORM"
+                    for a in node.args
+                )
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.slice, ast.Constant)
+                    and target.slice.value == "QT_QPA_PLATFORM"
+                ):
+                    return True
+        return False
+
+    offenders = []
+    for path in sorted(Path(__file__).resolve().parent.glob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if sets_the_plugin(node):
+                offenders.append(f"{path.name}:{node.lineno}")
+    assert not offenders, f"平台外掛只能由 conftest.py 決定：{offenders}"

@@ -16,11 +16,8 @@
 
 """GUI 層測試。用 offscreen 平台跑，不需要真的開視窗。"""
 
-import os
 
 import pytest
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from PySide6.QtGui import QInputMethodEvent  # noqa: E402
