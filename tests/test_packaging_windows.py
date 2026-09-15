@@ -309,13 +309,47 @@ def test_f_win_05_the_cli_entry_point_takes_arguments():
 
 @windows_only
 @needs_build
+def test_the_build_records_what_it_produced():
+    """建構戳記：記下版本、Python 版本與建構時間。
+
+    除了「這是哪一版」這個實用價值之外，下一個測試要靠它的時間戳分辨
+    「建構留下的」與「跑過之後才產生的」位元碼。
+    """
+    import json
+
+    info = json.loads((DIST / "build-info.json").read_text(encoding="utf-8"))
+    assert info["version"] == __version__
+    assert info["app_id"] == APP_ID
+    assert info["built_at"]
+    assert info["python"]
+
+
+@windows_only
+@needs_build
 def test_br_win_2_the_built_tree_has_no_build_time_leftovers():
-    leftovers = []
-    leftovers += [str(p) for p in DIST.rglob("__pycache__")]
-    leftovers += [str(p) for p in DIST.rglob("*.pyc")]
+    """BR-WIN-2 管的是**建構**期的殘留。
+
+    `__pycache__` 要分兩種：建構過程留下來的（該清掉），與使用者跑過之後
+    Python 自己寫的（很正常，清不掉也不該清）。用建構戳記的時間分辨——
+    戳記是建構的最後一步寫的，比它新的位元碼就是跑出來的。
+
+    這個區別不是為了漂亮：CI 的「終端機進入點可以執行」那一步就在本測試
+    之前，跑過之後必然留下位元碼。少了這個判斷，CI 一定紅燈。
+    """
+    import json
+
+    stamp = (DIST / "build-info.json").stat().st_mtime
+
+    leftovers = [
+        str(path)
+        for path in list(DIST.rglob("__pycache__")) + list(DIST.rglob("*.pyc"))
+        if path.stat().st_mtime <= stamp
+    ]
     for name in ("pip", "setuptools", "pkg_resources", "_distutils_hack"):
         leftovers += [str(p) for p in DIST.glob(f"Lib/site-packages/{name}")]
     assert not leftovers, leftovers
+    # 戳記本身要讀得動，順便確認上面用的是同一個檔案
+    json.loads((DIST / "build-info.json").read_text(encoding="utf-8"))
 
 
 @windows_only

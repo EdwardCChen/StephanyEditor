@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import json
 import os
 import shutil
 import struct  # noqa: F401  與 make-icons 的 .ico 格式共用知識，見 make_icon()
@@ -44,6 +45,7 @@ import sys
 import venv
 import winreg
 from ctypes import POINTER, byref, c_void_p, c_wchar_p
+from datetime import datetime, timezone
 from ctypes.wintypes import BYTE, DWORD, WORD
 from pathlib import Path
 
@@ -164,6 +166,23 @@ def build() -> Path:
         shutil.copy2(ROOT / name, DIST / name)
 
     strip_build_artifacts(site)
+
+    # 建構戳記一定要是**最後**一步：BR-WIN-2 的測試靠它的時間戳分辨
+    # 「建構留下的位元碼」與「使用者跑過之後 Python 自己寫的位元碼」。
+    (DIST / "build-info.json").write_text(
+        json.dumps(
+            {
+                "app_id": APP_ID,
+                "version": __version__,
+                "python": sys.version.split()[0],
+                "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + chr(10),
+        encoding="utf-8",
+    )
 
     size = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file())
     print(f"==> 完成：{DIST}（{size / 1024 / 1024:.0f} MB）")
