@@ -49,6 +49,14 @@ windows_only = pytest.mark.skipif(
     not platforms.IS_WINDOWS, reason="只有 Windows 驗得到"
 )
 
+#: 建好的安裝樹。沒建過就 skip——建一次要下載 200 MB，不該綁在每次跑測試上。
+DIST = ROOT / "dist" / "StephanyEditor"
+
+needs_build = pytest.mark.skipif(
+    not DIST.exists(),
+    reason="還沒建置（先跑 python packaging/build-win.py）",
+)
+
 
 # ======================================================================
 # D-W3：不需要第三方打包工具
@@ -62,8 +70,8 @@ def test_d_w3_no_third_party_bundler_is_required():
 def test_d_w3_only_the_standard_library_and_venv_are_used():
     """ctypes 是標準函式庫，venv 是 Python 自己就有的——這兩樣構成
     「clone 下來就能建」的底線。"""
-    assert "venv" in SCRIPT
-    assert "ctypes" in SCRIPT
+    assert "import venv" in CODE
+    assert "import ctypes" in CODE
 
 
 def test_nf_w4_the_build_script_is_python_not_a_batch_file():
@@ -113,8 +121,15 @@ def test_br_win_6_the_install_target_is_under_localappdata():
 
 
 def test_f_win_09_config_stays_out_of_the_install_directory():
-    """解除安裝會整個刪掉安裝目錄；設定與巨集在 %APPDATA%，不會被連坐。"""
-    assert "APPDATA" in SCRIPT or "config_dir" in SCRIPT
+    """解除安裝會整個刪掉安裝目錄；設定與巨集在 %APPDATA%，不會被連坐。
+
+    注意不能只寫 `"APPDATA" in SCRIPT`——它是 `LOCALAPPDATA` 的子字串，
+    光靠安裝目錄那一行就會通過，等於什麼都沒檢查。
+    """
+    import re
+
+    assert re.search(r'(?<!LOCAL)APPDATA', CODE), "沒有用到 %APPDATA%"
+    assert "config_dir" in CODE, "解除安裝時要能告訴使用者設定留在哪"
 
 
 # ======================================================================
@@ -126,10 +141,34 @@ def test_d_w1_the_executable_is_a_renamed_interpreter():
     assert f"{APP_ID}.exe" in SCRIPT or "EXE_NAME" in SCRIPT
 
 
-def test_d_w1_the_gui_entry_point_uses_pythonw_not_python():
-    """用 python.exe 會每次都彈一個主控台視窗出來（F-WIN-05）。"""
-    index_w = SCRIPT.index("pythonw.exe")
-    assert index_w >= 0
+def _pe_subsystem(path: Path) -> int:
+    """讀 PE 標頭的 Subsystem 欄位：2 = GUI，3 = 主控台。"""
+    data = path.read_bytes()
+    pe = int.from_bytes(data[0x3C:0x40], "little")
+    assert data[pe : pe + 4] == b"PE\x00\x00", "不是 PE 檔"
+    # Subsystem 在選用標頭的 offset 68，PE32 與 PE32+ 都一樣
+    optional = pe + 24
+    return int.from_bytes(data[optional + 68 : optional + 70], "little")
+
+
+@windows_only
+@needs_build
+def test_f_win_05_the_gui_entry_point_really_is_a_windowed_executable():
+    """用 python.exe 當 GUI 進入點的話，每次啟動都會彈一個主控台視窗出來
+    （F-WIN-05「不得彈出多餘的主控台視窗」）。
+
+    這件事光看腳本寫了 `pythonw.exe` 是驗不出來的——複製錯了檔案，字串
+    仍然在。直接讀產出執行檔的 PE 子系統欄位。
+    """
+    IMAGE_SUBSYSTEM_WINDOWS_GUI, IMAGE_SUBSYSTEM_WINDOWS_CUI = 2, 3
+    gui = DIST / "Scripts" / f"{APP_ID}.exe"
+    cli = DIST / "Scripts" / f"{APP_ID}-cli.exe"
+    assert _pe_subsystem(gui) == IMAGE_SUBSYSTEM_WINDOWS_GUI, (
+        "GUI 進入點不是視窗子系統——啟動時會多一個主控台視窗"
+    )
+    assert _pe_subsystem(cli) == IMAGE_SUBSYSTEM_WINDOWS_CUI, (
+        "終端機進入點不是主控台子系統——--version 的輸出會看不到"
+    )
 
 
 def test_d_w2_no_sitecustomize_hack_is_needed():
@@ -143,9 +182,44 @@ def test_d_w2_no_sitecustomize_hack_is_needed():
 # ======================================================================
 # BR-WIN-2：不得帶進建構期殘留
 # ======================================================================
-def test_br_win_2_build_artifacts_are_stripped():
-    for pattern in ("__pycache__", "pip", "setuptools"):
-        assert pattern in SCRIPT, pattern
+@windows_only
+def test_br_win_2_the_stripper_actually_removes_things(build_win, tmp_path,
+                                                       monkeypatch):
+    """原本只檢查腳本裡有沒有出現「pip」這幾個字，所以把
+    `strip_build_artifacts()` 整個改成 `return` 也照樣會過。
+
+    改成拿一棵假的安裝樹餵給它，看它到底刪不刪。
+    """
+    dist = tmp_path / "StephanyEditor"
+    site = dist / "Lib" / "site-packages"
+    scripts = dist / "Scripts"
+    for path in (site, scripts, dist / "Include"):
+        path.mkdir(parents=True)
+    for name in ("pip", "setuptools", "pkg_resources", "_distutils_hack"):
+        (site / name).mkdir()
+    (site / "distutils-precedence.pth").write_text("", encoding="utf-8")
+    (site / "stephany").mkdir()
+    (site / "stephany" / "__pycache__").mkdir()
+    (site / "stephany" / "x.pyc").write_bytes(b"")
+    (scripts / "pip.exe").write_bytes(b"")
+    (scripts / "pyside6-designer.exe").write_bytes(b"")
+    (scripts / "activate.bat").write_bytes(b"")
+    (scripts / "deactivate.bat").write_bytes(b"")
+    (scripts / "python.exe").write_bytes(b"")  # 這個不能被刪掉
+    (dist / ".gitignore").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(build_win, "DIST", dist)
+    build_win.strip_build_artifacts(site)
+
+    for gone in (site / "pip", site / "setuptools", site / "pkg_resources",
+                 site / "_distutils_hack", site / "distutils-precedence.pth",
+                 site / "stephany" / "__pycache__", site / "stephany" / "x.pyc",
+                 scripts / "pip.exe", scripts / "pyside6-designer.exe",
+                 scripts / "activate.bat", scripts / "deactivate.bat",
+                 dist / "Include", dist / ".gitignore"):
+        assert not gone.exists(), f"沒有被清掉：{gone}"
+    assert (scripts / "python.exe").exists(), "把不該刪的也刪了"
+    assert (site / "stephany").exists(), "把程式本體刪掉了"
 
 
 # ======================================================================
@@ -181,13 +255,64 @@ def test_f_win_06_uninstall_exists_and_removes_all_three_things():
         assert what in SCRIPT, what
 
 
-def test_f_win_06_uninstall_does_not_touch_the_config_directory():
-    """設定與巨集是使用者的資料，解除安裝不該順手刪掉（F-WIN-06 括號）。"""
-    import re
+@windows_only
+def test_f_win_06_uninstall_really_removes_everything_it_should(
+    build_win, tmp_path, monkeypatch
+):
+    """原本只是拿正規表示式掃 `uninstall()` 的原始碼——`uninstall()` 本身
+    從來沒被執行過，而且把 `rmtree` 寫在 `config_dir()` **前面**就繞過去了。
 
-    section = SCRIPT[SCRIPT.index("def uninstall"):]
-    section = section[: section.index("\ndef ")] if "\ndef " in section else section
-    assert not re.search(r"config_dir\(\)[^\n]*(rmtree|unlink|remove)", section)
+    改成真的跑一次：假的安裝目錄、假的捷徑、測試專用的登錄機碼。
+    """
+    import winreg
+
+    install_dir = tmp_path / "Programs" / "StephanyEditor"
+    (install_dir / "Scripts").mkdir(parents=True)
+    (install_dir / "build-info.json").write_text("{}", encoding="utf-8")
+    shortcut = tmp_path / "Start Menu" / "Stephany Editor.lnk"
+    shortcut.parent.mkdir(parents=True)
+    shortcut.write_bytes(b"")
+    test_key = r"Software\Classes\Applications\stephany-editor-UNINST.exe"
+    winreg.CreateKey(
+        winreg.HKEY_CURRENT_USER, test_key + r"\shell\open\command"
+    ).Close()
+
+    config_dir = tmp_path / "設定"
+    config_dir.mkdir()
+    (config_dir / "macros.json").write_text("[]", encoding="utf-8")
+
+    monkeypatch.setattr(build_win, "INSTALL_DIR", install_dir)
+    monkeypatch.setattr(build_win, "SHORTCUT", shortcut)
+    monkeypatch.setattr(build_win, "APP_KEY", test_key)
+    monkeypatch.setenv(platforms.CONFIG_DIR_ENV, str(config_dir))
+
+    try:
+        build_win.uninstall()
+
+        assert not install_dir.exists(), "安裝目錄沒有被移除"
+        assert not shortcut.exists(), "捷徑沒有被移除"
+        with pytest.raises(FileNotFoundError):
+            winreg.OpenKey(winreg.HKEY_CURRENT_USER, test_key).Close()
+
+        # F-WIN-06 的括號：設定與巨集是使用者的資料，不該被連坐
+        assert config_dir.exists(), "把使用者的設定目錄刪掉了"
+        assert (config_dir / "macros.json").exists(), "把使用者的巨集刪掉了"
+    finally:
+        build_win.delete_key_tree(winreg.HKEY_CURRENT_USER, test_key)
+
+
+@windows_only
+def test_f_win_06_uninstalling_something_that_is_not_installed_is_quiet(
+    build_win, tmp_path, monkeypatch
+):
+    """沒裝過就解除安裝，不該丟例外。"""
+    monkeypatch.setattr(build_win, "INSTALL_DIR", tmp_path / "沒有這個")
+    monkeypatch.setattr(build_win, "SHORTCUT", tmp_path / "沒有這個.lnk")
+    monkeypatch.setattr(
+        build_win, "APP_KEY",
+        r"Software\Classes\Applications\stephany-editor-NOPE2.exe",
+    )
+    build_win.uninstall()
 
 
 # ======================================================================
@@ -259,12 +384,6 @@ def test_every_ico_entry_points_inside_the_file(ico_bytes):
 # ======================================================================
 # 上面那些測試看的是腳本寫了什麼，這一段看的是跑完之後長什麼樣。
 # 沒建過就 skip——建一次要下載 200 MB，不該綁在每次跑測試上。
-DIST = ROOT / "dist" / "StephanyEditor"
-
-needs_build = pytest.mark.skipif(
-    not DIST.exists(),
-    reason="還沒建置（先跑 python packaging/build-win.py）",
-)
 
 
 @windows_only
@@ -564,3 +683,120 @@ def test_the_windows_job_builds_the_installation_too():
     不需提權的情況下跑起來——這件事只有 CI 驗得到。"""
     text = CI.read_text(encoding="utf-8")
     assert "build-win.py" in text
+
+
+# ======================================================================
+# NF-W4：中文訊息在非 UTF-8 的主控台不得炸開
+# ======================================================================
+@windows_only
+def test_nf_w4_make_icons_survives_a_non_utf8_console(tmp_path):
+    """make-icons.py 成功時會印一行中文到 stdout，而 build-win.py 是用
+    子行程呼叫它、stdout 直接繼承下去——所以它炸開就等於建構失敗。
+
+    這裡刻意走真的產生 .ico 的路徑：用 `--help` 測不到，因為用法說明是
+    印到 stderr 的，而 stderr 預設就是 backslashreplace，本來就不會炸。
+    """
+    import os
+    import subprocess
+
+    result = subprocess.run(
+        [sys.executable, str(MAKE_ICONS),
+         str(ROOT / "stephany" / "resources" / "stephany-editor.svg"),
+         str(tmp_path / "out.ico"), "--ico"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "cp1252",
+             "QT_QPA_PLATFORM": "offscreen"},
+    )
+    assert "UnicodeEncodeError" not in result.stderr, result.stderr
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "out.ico").exists()
+
+
+@windows_only
+@pytest.mark.parametrize("script", ["build-win.py"])
+def test_nf_w4_the_scripts_survive_a_non_utf8_console(script):
+    """GitHub 的 windows runner 是 en-US 映像，主控台字碼頁是 cp1252，
+    而本專案的訊息全是中文——`print()` 會直接 UnicodeEncodeError 中止。
+
+    NF-W4 當初寫「中文訊息在 cmd 與 PowerShell 的編碼行為都不可靠」是
+    選用 Python 的理由，但光是用 Python 並不會自動解決，腳本得自己把
+    輸出串流轉成 UTF-8。
+
+    這裡用 PYTHONIOENCODING=cp1252 重現 runner 的環境（本機是 cp950，
+    編得出中文，測不出來）。
+    """
+    import os
+    import subprocess
+
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "packaging" / script), "--help"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+    assert "UnicodeEncodeError" not in result.stderr, result.stderr
+    assert result.returncode in (0, 2), result.stderr
+
+
+# ======================================================================
+# 安全性／穩健性（code review 指出的實質問題）
+# ======================================================================
+def test_the_path_advice_does_not_corrupt_the_user_path():
+    """`setx PATH "%PATH%;..."` 是有名的 PATH 殺手：
+
+    * 在 cmd 裡 `%PATH%` 展開的是「系統 + 使用者」合併後的值，執行下去等於
+      把整份系統 PATH 複製一份到使用者 PATH；日後系統 PATH 更新就再也吃不到。
+    * `setx` 超過 1024 個字元會**靜默截斷**。
+
+    安裝腳本不該印一行會弄壞使用者環境的指令。
+    """
+    assert "setx" not in CODE, "不要建議使用者用 setx 改 PATH"
+    assert "%PATH%" not in CODE
+    assert "setx" in SCRIPT, "註解裡要說明為什麼不用它"
+
+
+def test_the_path_advice_reads_only_the_user_scope():
+    """正確做法是只讀寫 User 範圍的 Path，不要碰到系統的那一份。"""
+    assert 'GetEnvironmentVariable("Path", "User")' in SCRIPT
+    assert '"User"' in SCRIPT
+
+
+@windows_only
+def test_the_com_helper_releases_what_it_creates(build_win, tmp_path):
+    """`write_shortcut()` 在測試裡會被重複呼叫；介面指標與 PROPVARIANT
+    的記憶體若不釋放，就是一路漏到行程結束。"""
+    assert "_release(" in CODE, "沒有釋放 COM 介面指標"
+    assert "CoTaskMemFree" in CODE, "PROPVARIANT 的字串沒有釋放"
+    assert "CoUninitialize" in CODE, "CoInitialize 沒有配對"
+
+    # 連續呼叫多次不得出錯（漏了 Release 不會當場壞，但至少確認沒改壞）
+    exe = tmp_path / "stephany-editor.exe"
+    exe.write_bytes(b"")
+    icon = tmp_path / "i.ico"
+    icon.write_bytes(b"")
+    for i in range(20):
+        lnk = tmp_path / f"s{i}.lnk"
+        build_win.write_shortcut(lnk, exe, "-m stephany", icon, BUNDLE_ID)
+        assert build_win.read_shortcut_app_user_model_id(lnk) == BUNDLE_ID
+
+
+@windows_only
+def test_reinstalling_while_the_editor_is_running_says_so(build_win, tmp_path,
+                                                          monkeypatch):
+    """重裝時若舊的執行檔正被使用中，`shutil.rmtree` 會丟
+    PermissionError 的 traceback，使用者看不懂。要給一句人話。"""
+    install_dir = tmp_path / "Programs" / "StephanyEditor"
+    install_dir.mkdir(parents=True)
+    locked = install_dir / "locked.exe"
+    locked.write_bytes(b"x")
+
+    monkeypatch.setattr(build_win, "INSTALL_DIR", install_dir)
+    monkeypatch.setattr(build_win, "DIST", tmp_path / "dist")
+    (tmp_path / "dist").mkdir()
+
+    def boom(*args, **kwargs):
+        raise PermissionError(13, "程序無法存取檔案，因為它正由另一個程序使用")
+
+    monkeypatch.setattr(build_win.shutil, "rmtree", boom)
+
+    with pytest.raises(SystemExit):
+        build_win.install()

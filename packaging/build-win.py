@@ -92,6 +92,27 @@ CLASSES = r"Software\Classes"
 APP_KEY = rf"{CLASSES}\Applications\{EXE_NAME}"
 
 
+def _force_utf8_output() -> None:
+    """把自己的輸出串流轉成 UTF-8（SRS-006 NF-W4）。
+
+    本專案的訊息全是中文，而 Windows 主控台的字碼頁是跟著系統語系走的：
+    en-US 是 cp1252，一個中文字都編不出來，`print()` 會直接
+    `UnicodeEncodeError` 中止——GitHub 的 windows runner 就是這樣炸的。
+
+    NF-W4 當初選 Python 來寫建構腳本，是因為 cmd 與 PowerShell 的編碼行為
+    更不可靠；但光是用 Python 並不會自動解決，得自己把串流轉過來。
+
+    `errors="replace"` 是最後一道保險：真的有編不出來的字元時印成問號，
+    也不要讓建構掛掉。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # pythonw 底下 stdout 可能是 None，或不是 TextIOWrapper
+            pass
+
+
 def fail(message: str) -> None:
     print(f"錯誤：{message}", file=sys.stderr)
     raise SystemExit(1)
@@ -242,6 +263,9 @@ _ole32 = ctypes.OleDLL("ole32")
 _mem = ctypes.WinDLL("ole32")
 _mem.CoTaskMemAlloc.restype = c_void_p
 _mem.CoTaskMemAlloc.argtypes = [ctypes.c_size_t]
+# 不宣告 argtypes 的話，指標會被當成 c_int 傳，64 位元位址直接 OverflowError
+_mem.CoTaskMemFree.restype = None
+_mem.CoTaskMemFree.argtypes = [c_void_p]
 
 VT_LPWSTR = 31
 
@@ -287,10 +311,27 @@ def _vcall(obj, index, *argtypes):
     return proto(table[index])
 
 
+#: IUnknown::Release 在 vtable 的第 2 格
+_RELEASE = 2
+
+
 def _query_interface(obj, iid: str) -> c_void_p:
     out = c_void_p()
     _vcall(obj, 0, c_void_p, c_void_p)(obj, byref(GUID(iid)), byref(out))
     return out
+
+
+def _release(*objects) -> None:
+    """放掉介面指標。
+
+    一次性的腳本漏掉也看不出來，但測試會在同一個行程裡反覆呼叫
+    `write_shortcut()`，那就是實實在在的洩漏了。
+    """
+    for obj in objects:
+        if obj:
+            ctypes.WINFUNCTYPE(ctypes.c_ulong, c_void_p)(
+                ctypes.cast(obj, POINTER(POINTER(c_void_p)))[0][_RELEASE]
+            )(obj)
 
 
 def write_shortcut(path: Path, target: Path, arguments: str, icon: Path,
@@ -301,54 +342,75 @@ def write_shortcut(path: Path, target: Path, arguments: str, icon: Path,
     還是 Python 的圖示；.lnk 自己的 IconLocation 會蓋過它。
     """
     _ole32.CoInitialize(None)
-    link = c_void_p()
-    _ole32.CoCreateInstance(
-        byref(GUID(CLSID_SHELL_LINK)), None, 1,
-        byref(GUID(IID_SHELL_LINK_W)), byref(link),
-    )
-    _vcall(link, _SET_PATH, c_wchar_p)(link, str(target))
-    _vcall(link, _SET_ARGUMENTS, c_wchar_p)(link, arguments)
-    _vcall(link, _SET_WORKING_DIRECTORY, c_wchar_p)(link, str(target.parent))
-    _vcall(link, _SET_ICON_LOCATION, c_wchar_p, ctypes.c_int)(link, str(icon), 0)
+    link = store = persist = None
+    buffer = None
+    try:
+        link = c_void_p()
+        _ole32.CoCreateInstance(
+            byref(GUID(CLSID_SHELL_LINK)), None, 1,
+            byref(GUID(IID_SHELL_LINK_W)), byref(link),
+        )
+        _vcall(link, _SET_PATH, c_wchar_p)(link, str(target))
+        _vcall(link, _SET_ARGUMENTS, c_wchar_p)(link, arguments)
+        _vcall(link, _SET_WORKING_DIRECTORY, c_wchar_p)(link, str(target.parent))
+        _vcall(link, _SET_ICON_LOCATION, c_wchar_p, ctypes.c_int)(
+            link, str(icon), 0
+        )
 
-    store = _query_interface(link, IID_PROPERTY_STORE)
-    key = PROPERTYKEY(GUID(FMTID_APP_USER_MODEL), 5)  # PKEY_AppUserModel_ID
-    encoded = app_user_model_id.encode("utf-16-le") + b"\x00\x00"
-    buffer = _mem.CoTaskMemAlloc(len(encoded))
-    ctypes.memmove(buffer, encoded, len(encoded))
-    value = PROPVARIANT()
-    value.vt = VT_LPWSTR
-    value.p = buffer
-    _vcall(store, _STORE_SET_VALUE, POINTER(PROPERTYKEY), POINTER(PROPVARIANT))(
-        store, byref(key), byref(value)
-    )
-    _vcall(store, _STORE_COMMIT)(store)
+        store = _query_interface(link, IID_PROPERTY_STORE)
+        key = PROPERTYKEY(GUID(FMTID_APP_USER_MODEL), 5)  # PKEY_AppUserModel_ID
+        encoded = app_user_model_id.encode("utf-16-le") + b"\x00\x00"
+        buffer = _mem.CoTaskMemAlloc(len(encoded))
+        if not buffer:
+            raise MemoryError("CoTaskMemAlloc 配置不到記憶體")
+        ctypes.memmove(buffer, encoded, len(encoded))
+        value = PROPVARIANT()
+        value.vt = VT_LPWSTR
+        value.p = buffer
+        _vcall(
+            store, _STORE_SET_VALUE, POINTER(PROPERTYKEY), POINTER(PROPVARIANT)
+        )(store, byref(key), byref(value))
+        _vcall(store, _STORE_COMMIT)(store)
 
-    persist = _query_interface(link, IID_PERSIST_FILE)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _vcall(persist, _PERSIST_SAVE, c_wchar_p, ctypes.c_int)(persist, str(path), 1)
+        persist = _query_interface(link, IID_PERSIST_FILE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _vcall(persist, _PERSIST_SAVE, c_wchar_p, ctypes.c_int)(
+            persist, str(path), 1
+        )
+    finally:
+        if buffer:
+            _mem.CoTaskMemFree(buffer)
+        _release(persist, store, link)
+        _ole32.CoUninitialize()
 
 
 def read_shortcut_app_user_model_id(path: Path) -> str | None:
     """讀回 .lnk 上的 AppUserModelID——寫進去了沒有，直接問 Windows。"""
     _PERSIST_LOAD, _STORE_GET_VALUE = 5, 5
     _ole32.CoInitialize(None)
-    link = c_void_p()
-    _ole32.CoCreateInstance(
-        byref(GUID(CLSID_SHELL_LINK)), None, 1,
-        byref(GUID(IID_SHELL_LINK_W)), byref(link),
-    )
-    persist = _query_interface(link, IID_PERSIST_FILE)
-    _vcall(persist, _PERSIST_LOAD, c_wchar_p, DWORD)(persist, str(path), 0)
-    store = _query_interface(link, IID_PROPERTY_STORE)
-    key = PROPERTYKEY(GUID(FMTID_APP_USER_MODEL), 5)
-    value = PROPVARIANT()
-    _vcall(store, _STORE_GET_VALUE, POINTER(PROPERTYKEY), POINTER(PROPVARIANT))(
-        store, byref(key), byref(value)
-    )
-    if value.vt != VT_LPWSTR or not value.p:
-        return None
-    return ctypes.cast(value.p, c_wchar_p).value
+    link = store = persist = None
+    try:
+        link = c_void_p()
+        _ole32.CoCreateInstance(
+            byref(GUID(CLSID_SHELL_LINK)), None, 1,
+            byref(GUID(IID_SHELL_LINK_W)), byref(link),
+        )
+        persist = _query_interface(link, IID_PERSIST_FILE)
+        _vcall(persist, _PERSIST_LOAD, c_wchar_p, DWORD)(persist, str(path), 0)
+        store = _query_interface(link, IID_PROPERTY_STORE)
+        key = PROPERTYKEY(GUID(FMTID_APP_USER_MODEL), 5)
+        value = PROPVARIANT()
+        _vcall(
+            store, _STORE_GET_VALUE, POINTER(PROPERTYKEY), POINTER(PROPVARIANT)
+        )(store, byref(key), byref(value))
+        if value.vt != VT_LPWSTR or not value.p:
+            return None
+        result = ctypes.cast(value.p, c_wchar_p).value
+        _mem.CoTaskMemFree(value.p)
+        return result
+    finally:
+        _release(persist, store, link)
+        _ole32.CoUninitialize()
 
 
 # ======================================================================
@@ -360,7 +422,14 @@ def install(shortcut_only: bool = False) -> None:
             fail("還沒建置，先跑一次不帶參數的 build-win.py。")
         print(f"==> 安裝到 {INSTALL_DIR}")
         if INSTALL_DIR.exists():
-            shutil.rmtree(INSTALL_DIR)
+            try:
+                shutil.rmtree(INSTALL_DIR)
+            except PermissionError:
+                # 最常見的原因：舊版還開著。丟 traceback 給使用者看沒有意義。
+                fail(
+                    f"移除不掉舊的安裝（{INSTALL_DIR}）。"
+                    f"請先關掉正在執行的 {APP_NAME} 再試一次。"
+                )
         INSTALL_DIR.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(DIST, INSTALL_DIR)
 
@@ -376,9 +445,16 @@ def install(shortcut_only: bool = False) -> None:
     print(f"==> 已登記「開啟方式」：{len(SUPPORTED_TYPES)} 種副檔名")
 
     print()
-    print("終端機指令（F-WIN-05）——把安裝目錄加進 PATH 即可：")
-    print(f'    setx PATH "%PATH%;{INSTALL_DIR}"')
-    print(f"    之後就能用 {APP_ID} 檔案.txt 開檔")
+    print("終端機指令（F-WIN-05）——把安裝目錄加進 PATH，在 PowerShell 執行：")
+    # 刻意不用 `setx PATH "%PATH%;..."`：在 cmd 裡 %PATH% 展開的是「系統 +
+    # 使用者」合併後的值，那一行等於把整份系統 PATH 複製進使用者 PATH，
+    # 日後系統 PATH 更新就再也吃不到；而且 setx 超過 1024 字元會靜默截斷。
+    # 正確做法是只讀寫 User 範圍的 Path。
+    print(
+        '    $p = [Environment]::GetEnvironmentVariable("Path", "User")\n'
+        f'    [Environment]::SetEnvironmentVariable("Path", "$p;{INSTALL_DIR}", "User")'
+    )
+    print(f"    重開終端機後就能用 {APP_ID} 檔案.txt 開檔")
 
 
 def register_file_types(exe: Path, icon: Path) -> None:
@@ -454,6 +530,7 @@ def delete_key_tree(root, path: str) -> bool:
 
 # ======================================================================
 def main() -> int:
+    _force_utf8_output()  # 必須是第一件事——後面每一行訊息都是中文
     parser = argparse.ArgumentParser(
         prog="build-win.py",
         description=f"建置與安裝 {APP_NAME}（Windows）",

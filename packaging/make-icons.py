@@ -54,7 +54,29 @@ ICONSET_SIZES = (
 )
 
 
+def _force_utf8_output() -> None:
+    """把自己的輸出串流轉成 UTF-8（SRS-006 NF-W4）。
+
+    本專案的訊息全是中文，而 Windows 主控台的字碼頁是跟著系統語系走的：
+    en-US 是 cp1252，一個中文字都編不出來，`print()` 會直接
+    `UnicodeEncodeError` 中止——GitHub 的 windows runner 就是這樣炸的。
+
+    NF-W4 當初選 Python 來寫建構腳本，是因為 cmd 與 PowerShell 的編碼行為
+    更不可靠；但光是用 Python 並不會自動解決，得自己把串流轉過來。
+
+    `errors="replace"` 是最後一道保險：真的有編不出來的字元時印成問號，
+    也不要讓建構掛掉。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # pythonw 底下 stdout 可能是 None，或不是 TextIOWrapper
+            pass
+
+
 def main() -> int:
+    _force_utf8_output()  # 由 build-win.py 以子行程呼叫，stdout 直接繼承
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     iconset = "--iconset" in sys.argv[1:]
     ico = "--ico" in sys.argv[1:]

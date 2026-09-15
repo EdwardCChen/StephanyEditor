@@ -151,12 +151,40 @@ def test_br_win_5_the_original_alt_c_is_kept_as_well(window):
     assert QKeySequence("Alt+C").toString() in bound
 
 
+def _press_and_see_if_it_fires(window, action, key, modifiers):
+    """送一次按鍵，回報那個 action 有沒有被觸發。
+
+    會先把 action 原本的 slot 拔掉：`Ctrl+Shift+C` 真的會開出 modal 的
+    欄位編輯器對話框，測試跑到那裡就整個卡住了。
+    """
+    from PySide6.QtTest import QTest
+
+    try:
+        action.triggered.disconnect()
+    except RuntimeError:
+        pass
+    fired = []
+    action.triggered.connect(lambda *a: fired.append(1))
+    window.editor().setFocus()
+    QTest.keyClick(window, key, modifiers)
+    window.window().windowHandle()  # 讓事件跑完
+    QTest.qWait(10)
+    return bool(fired)
+
+
 def test_f_win_08_alt_c_really_is_shadowed_by_the_menu_mnemonic(window):
     """這是 F-WIN-08 存在的理由，直接測給它看。
 
-    同樣的送鍵方式下 Alt+0（全部摺疊）會觸發，Alt+C 不會——差別只在於
-    選單列有沒有一個同字母的助憶鍵。哪天 Qt 改了行為，這個測試會紅燈，
-    提醒可以把替代鍵拿掉。
+    **一定要有對照組**：`QTest.keyClick` 送到一個沒有 show() 的視窗時，
+    連 `Ctrl+N` 都不會觸發——沒有對照組的話，這個測試會因為「什麼都沒送到」
+    而通過，而不是因為「Alt+C 真的被吃掉」。實測（本機、視窗已顯示）：
+
+        Alt+0        -> 觸發
+        Ctrl+Shift+C -> 觸發
+        Alt+C        -> 不觸發
+
+    差別只在於選單列有沒有一個同字母的助憶鍵。哪天 Qt 改了行為，這個測試
+    會紅燈，提醒可以把替代鍵拿掉。
     """
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
@@ -164,11 +192,29 @@ def test_f_win_08_alt_c_really_is_shadowed_by_the_menu_mnemonic(window):
     names = [a.text() for a in window.menuBar().actions()]
     assert any("(&C)" in name for name in names), "選單列沒有 &C 助憶鍵了"
 
-    fired = []
-    window.act_column_editor.triggered.connect(lambda *a: fired.append(1))
-    window.editor().setFocus()
-    QTest.keyClick(window, Qt.Key.Key_C, Qt.KeyboardModifier.AltModifier)
-    assert not fired, "Alt+C 竟然按得到了——F-WIN-08 的替代鍵可以重新檢視"
+    window.show()
+    QTest.qWait(50)
+    assert window.isVisible()
+
+    alt = Qt.KeyboardModifier.AltModifier
+    ctrl_shift = (
+        Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+    )
+
+    # 對照組：同樣的送鍵方式，Alt+0 必須觸發，否則下面的斷言毫無意義
+    assert _press_and_see_if_it_fires(
+        window, window.act_fold_all, Qt.Key.Key_0, alt
+    ), "對照組 Alt+0 都沒觸發——這個測試根本沒送到鍵，結論不成立"
+
+    # 替代鍵必須真的按得到（F-WIN-08 的重點不是「有綁」而是「按得到」）
+    assert _press_and_see_if_it_fires(
+        window, window.act_column_editor, Qt.Key.Key_C, ctrl_shift
+    ), "替代鍵 Ctrl+Shift+C 按不到"
+
+    # 主角：Alt+C 被 編碼(&C) 助憶鍵吃掉
+    assert not _press_and_see_if_it_fires(
+        window, window.act_column_editor, Qt.Key.Key_C, alt
+    ), "Alt+C 竟然按得到了——F-WIN-08 的替代鍵可以重新檢視"
 
 
 # -- F-WIN-01 / D-W1：應用程式身分 ------------------------------------
@@ -198,9 +244,20 @@ def test_d_w1_the_process_declares_its_app_user_model_id():
 
 
 def test_f_win_01_configure_identity_sets_it_too(app):
-    """實際啟動路徑要真的走到它，不能只有函式存在。"""
+    """實際啟動路徑要真的走到它，不能只有函式存在。
+
+    AppUserModelID 是**程序層級**的狀態，而上一個測試已經設過了——不先
+    蓋掉的話，就算把 `configure_identity()` 裡那一行刪掉，這個測試照樣
+    會過。先設成一個哨兵值，才問得出「這一次呼叫有沒有真的設」。
+    """
+    import ctypes
+
     from stephany import BUNDLE_ID
     from stephany.__main__ import configure_identity
+
+    sentinel = "io.github.edwardcchen.SENTINEL-not-the-real-id"
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(sentinel)
+    assert _explicit_app_user_model_id() == sentinel, "哨兵沒設進去，測試無效"
 
     configure_identity(app)
     assert _explicit_app_user_model_id() == BUNDLE_ID
