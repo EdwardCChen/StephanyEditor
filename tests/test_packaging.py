@@ -255,3 +255,41 @@ def test_copyright_year_and_holder_are_single_sourced_in_the_build_script():
     script = BUILD_SCRIPT.read_text(encoding="utf-8")
     assert 'COPYRIGHT_HOLDER="Edward Chen"' in script
     assert 'COPYRIGHT_YEAR="2026"' in script
+
+
+# -- 跨平台開發：行尾（SRS-006 NF-W4 周邊）----------------------------
+def test_shell_scripts_are_stored_with_lf_line_endings():
+    """`build-app.sh` 與 `build-deb.sh` 只在 macOS／Linux 上執行。
+
+    Windows 加入開發平台之後，`core.autocrlf=true` 的機器一旦把 CRLF 提交
+    回去，bash 會把行尾的 `
+` 當成指令的一部分，症狀是
+    「`$'
+': command not found`」——在 Windows 上完全看不出來。
+    用 .gitattributes 釘住，不靠每個人的 git 設定正確。
+    """
+    attributes = ROOT / ".gitattributes"
+    assert attributes.exists(), "缺少 .gitattributes，shell 腳本的行尾沒有保障"
+    text = attributes.read_text(encoding="utf-8")
+    for pattern in ("*.sh", "*.desktop", "*.bootstrap", "*.cli", "*.launcher"):
+        assert pattern in text, f"{pattern} 沒有被釘住行尾"
+    assert "eol=lf" in text
+
+
+def test_git_actually_stores_those_files_with_lf():
+    """.gitattributes 寫對了不代表既有檔案已經是對的，直接問 git。"""
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("這台機器沒有 git")
+    result = subprocess.run(
+        ["git", "ls-files", "--eol", "--", "*.sh", "packaging/*"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        pytest.skip("不是 git 工作目錄")
+    offenders = [
+        line for line in result.stdout.splitlines() if "i/crlf" in line
+    ]
+    assert not offenders, f"以下檔案在儲存庫裡是 CRLF：{offenders}"

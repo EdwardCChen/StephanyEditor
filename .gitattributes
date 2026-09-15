@@ -1,0 +1,28 @@
+# 行尾規則（SRS-006：Windows 加入開發平台之後才需要的東西）
+#
+# Windows 的 git 常設 core.autocrlf=true。少了這個檔案，從 Windows 提交回去的
+# shell 腳本可能帶著 CRLF 進儲存庫，而 bash 會把行尾的 \r 當成指令的一部分：
+#
+#     ./packaging/build-deb.sh: line 20: $'\r': command not found
+#
+# 這個症狀只有在 Linux／macOS 上才看得到，改壞它的人在 Windows 上完全無感。
+# 所以不靠每台機器的 git 設定正確，直接在儲存庫層級釘住。
+
+# 預設讓 git 自己判斷是不是文字檔，是的話在儲存庫裡一律存成 LF
+* text=auto
+
+# 一定要 LF：這些檔案由 bash／sh／freedesktop 工具讀，CRLF 會直接壞掉
+*.sh            text eol=lf
+*.desktop       text eol=lf
+*.bootstrap     text eol=lf
+*.cli           text eol=lf
+*.launcher      text eol=lf
+
+# 一定要 CRLF：Windows 的批次檔由 cmd.exe 讀，LF 在舊版 cmd 會出問題
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# 二進位，不要碰
+*.png           binary
+*.ico           binary
+*.icns          binary
