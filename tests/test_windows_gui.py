@@ -119,13 +119,42 @@ def test_f_win_07_the_ratio_holds_for_characters_the_font_lacks(app):
         assert abs(ratio - 2.0) < 0.05, f"{family} 的「{char}」是 {ratio:.3f}"
 
 
-def test_br_win_4_the_proportional_variant_really_is_misaligned(app):
-    """BR-WIN-4 不是憑空訂的規則——如果哪天 PMingLiU 其實是對齊的，
-    這個測試會紅燈，提醒回去重看規則而不是默默守著一條過時的禁令。"""
-    if not _installed("PMingLiU", None):
-        pytest.skip("這台 Windows 沒有 PMingLiU")
-    assert abs(_ratio("PMingLiU", None) - 2.0) >= 0.05, (
-        "PMingLiU 量起來竟然是對齊的，BR-WIN-4 需要重新檢視"
+@pytest.mark.parametrize(
+    "proportional,monospaced",
+    [("PMingLiU", "MingLiU"), ("MS PGothic", "MS Gothic")],
+)
+def test_br_win_4_the_p_variants_really_are_proportional(
+    app, proportional, monospaced
+):
+    """BR-WIN-4 不是憑空訂的規則，但要驗對東西。
+
+    一開始這裡斷言「PMingLiU 的中文 / 半形比例不等於 2」——本機量到 2.13，
+    看起來很有說服力，結果 CI 的 runner 量到剛好 2.000 就紅燈了。比例會隨
+    Windows 實際解析到哪一個字面而變，不是穩定的性質。
+
+    穩定而且真正構成理由的性質是**它不是等寬字型**：`P` = proportional，
+    半形字的寬度本來就不保證固定，那才是欄模式不能用它的原因。同一台機器上
+    `MS PGothic` 的比例剛好是 2.000，但它一樣是比例字型——只驗比例的話就會
+    漏掉它。
+    """
+    from PySide6.QtGui import QFontInfo
+
+    if not _installed(proportional, None) or not _installed(monospaced, None):
+        pytest.skip(f"這台 Windows 沒有 {proportional} / {monospaced}")
+
+    def is_fixed_pitch(family: str) -> bool:
+        font = QFont(family, 12)
+        font.setFixedPitch(True)
+        info = QFontInfo(font)
+        if info.family() != family:
+            pytest.skip(f"Qt 把 {family} 換成了 {info.family()}，量不到本尊")
+        return info.fixedPitch()
+
+    assert not is_fixed_pitch(proportional), (
+        f"{proportional} 竟然是等寬字型，BR-WIN-4 需要重新檢視"
+    )
+    assert is_fixed_pitch(monospaced), (
+        f"{monospaced} 不是等寬字型，它不該留在對齊清單裡"
     )
 
 

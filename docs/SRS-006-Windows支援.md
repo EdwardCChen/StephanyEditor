@@ -123,7 +123,7 @@ zh-TW／zh-CN／ja 語系的 Windows 預設就有，但一台乾淨的 en-US Win
 | **BR-WIN-1** | 版本號取自 `stephany/__init__.py` 的 `__version__`，不得在建構腳本或捷徑中手動同步（同 BR-PK-1、BR-MAC-1） |
 | **BR-WIN-2** | 安裝目錄內不得含有 `__pycache__`、`*.pyc`、測試、`pip`／`setuptools` 等建構期套件（同 BR-MAC-2） |
 | **BR-WIN-3** | `AppUserModelID` 與 macOS 的 `CFBundleIdentifier` 必須是同一個字串；三平台的識別碼一律同源於 `stephany-editor`（延伸 BR-MAC-5） |
-| **BR-WIN-4** | 字型偏好清單不得收錄 `P` 開頭的 proportional 變體（`PMingLiU`、`MS PGothic`）——名稱只差一個字母，比例卻是 2.13（D-W5） |
+| **BR-WIN-4** | 字型偏好清單不得收錄 `P` 開頭的 proportional 變體（`PMingLiU`、`MS PGothic`）。判定依據是「該字型是不是等寬」，不是某台機器量到的比例數字——本機的 `PMingLiU` 量到 2.13、CI runner 量到 2.00，而 `MS PGothic` 在本機也是 2.00，但三者都是比例字型，半形寬不保證固定（D-W5） |
 | **BR-WIN-5** | Windows 只能「增加」快速鍵，不得另建一份完整對映表；補鍵與 macOS 共用同一個 `action_id`（同 BR-MAC-4） |
 | **BR-WIN-6** | 所有安裝行為限於 `HKCU` 與使用者自己的目錄，不得寫入 `HKLM`、`Program Files` 或 `System32` |
 
