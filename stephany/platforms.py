@@ -69,14 +69,34 @@ _LINUX_FALLBACK = (
     ("Monospace", None),
 )
 
-# Windows 尚未實機驗證（SRS-005 §6 範圍外），先留分支。
-# MS Gothic／新宋体／細明體都是中日文的全形等寬字型。
+# Windows 的清單是量出來的（SRS-006 D-W4）：9~24pt、19 個字元（含繁中專用字、
+# 假名、全形標點、罕用字）全部剛好 2.000。順序是繁中 → 簡中 → 日文，因為本專案
+# 以繁體中文為主。
+#
+# 兩個陷阱：
+#
+#   * **不要 P 開頭的變體**（BR-WIN-4）。`PMingLiU` 只比 `MingLiU` 多一個字母，
+#     P = proportional，半形字不是固定寬，實測比例 2.13。`MS PGothic` 同理。
+#   * **英文名與本地化名都要列**（D-W6）。Qt 在 zh-TW 的 Windows 上兩個都會列出
+#     （`MingLiU` 與 `細明體`），其他語系不保證；兩個都寫進來，比在這裡判斷
+#     locale 乾淨。
+#
+# 這些是 Windows 的「語言補充字型」：zh-TW／zh-CN／ja 語系預設就有，乾淨的
+# en-US Windows 11 可能一個都沒有——那種機器走下面的退路 + 狀態列警告。
 _WINDOWS_ALIGNED = _PORTABLE_FONTS + (
-    ("MS Gothic", None),
-    ("NSimSun", None),
     ("MingLiU", None),
+    ("細明體", None),
+    ("NSimSun", None),
+    ("SimSun", None),
+    ("MS Gothic", None),
 )
-_WINDOWS_FALLBACK = (("Consolas", None),)
+# 一定裝得到，但一個都不合格（實測：Consolas 1.82、Cascadia Mono 1.71、
+# Courier New 1.67）。至少是等寬，欄位會歪，狀態列會講。
+_WINDOWS_FALLBACK = (
+    ("Consolas", None),
+    ("Cascadia Mono", None),
+    ("Courier New", None),
+)
 
 ALIGNED_FONTS: tuple[tuple[str, str | None], ...] = (
     _MAC_ALIGNED if IS_MAC else _WINDOWS_ALIGNED if IS_WINDOWS else _LINUX_ALIGNED
@@ -92,7 +112,7 @@ PREFERRED_FONTS: tuple[tuple[str, str | None], ...] = ALIGNED_FONTS + FALLBACK_F
 FONT_HINT: str = (
     "Osaka Regular-Mono（系統內建）或 Sarasa Mono TC"
     if IS_MAC
-    else "Noto Sans Mono CJK 或細明體"
+    else "細明體（MingLiU，Windows 的中文補充字型）或 Noto Sans Mono CJK"
     if IS_WINDOWS
     else "Noto Sans Mono CJK"
 )
@@ -117,7 +137,20 @@ _MAC_EXTRA_SHORTCUTS: dict[str, tuple[str, ...]] = {
     "column_editor": ("Ctrl+Shift+C",),  # ⇧⌘C：原 Alt+C（⌥C 會打出 ç）
 }
 
-EXTRA_SHORTCUTS: dict[str, tuple[str, ...]] = _MAC_EXTRA_SHORTCUTS if IS_MAC else {}
+# Windows 只有一個動作按不到，但成因跟 macOS 不一樣：選單列有 `編碼(&C)`，
+# Windows 的選單助憶鍵優先權高於 QAction 的快速鍵，於是 `Alt+C` 被選單吃掉
+# （實測：同樣送鍵方式下 Ctrl+N／Ctrl+Shift+B／Alt+0／Alt+1 都會觸發，
+# 只有 Alt+C 沒有反應）。補的鍵與 macOS 是同一個，肌肉記憶才不會分岔
+# （SRS-006 D-W7、BR-WIN-5）。
+#
+# F1／F2 在 Windows 上直接按得到，不必跟著 macOS 一起補。
+_WINDOWS_EXTRA_SHORTCUTS: dict[str, tuple[str, ...]] = {
+    "column_editor": ("Ctrl+Shift+C",),  # 原 Alt+C 被 編碼(&C) 選單搶走
+}
+
+EXTRA_SHORTCUTS: dict[str, tuple[str, ...]] = (
+    _MAC_EXTRA_SHORTCUTS if IS_MAC else _WINDOWS_EXTRA_SHORTCUTS if IS_WINDOWS else {}
+)
 
 
 def extra_shortcuts(action: str) -> tuple[str, ...]:

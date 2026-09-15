@@ -106,10 +106,17 @@ def test_the_font_warning_names_something_available_on_this_platform():
 
 
 # -- D-05 / BR-MAC-4：快速鍵 -----------------------------------------
-def test_br_mac_4_only_macos_adds_extra_shortcuts():
-    """跨平台的鍵表只有一份；macOS 只能「多綁一個」，不得另建一套。"""
-    if not platforms.IS_MAC:
+def test_br_mac_4_win_5_extra_shortcuts_only_ever_add(monkeypatch):
+    """跨平台的鍵表只有一份；各平台只能「多綁一個」，不得另建一套。
+
+    Linux 什麼都不必補（F1/F2 按得到、Alt+C 沒有被選單搶走）；
+    macOS 與 Windows 各自補的鍵，都必須是既有動作的額外綁定。
+    """
+    if platforms.IS_LINUX:
         assert platforms.EXTRA_SHORTCUTS == {}
+    for table in (platforms._MAC_EXTRA_SHORTCUTS, platforms._WINDOWS_EXTRA_SHORTCUTS):
+        for action_id, sequences in table.items():
+            assert sequences, action_id
 
 
 def test_every_extra_shortcut_belongs_to_a_real_action():
@@ -185,3 +192,98 @@ def test_linux_still_honours_xdg_config_home(monkeypatch, tmp_path):
     monkeypatch.delenv(platforms.CONFIG_DIR_ENV, raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     assert platforms.config_dir() == tmp_path / "StephanyEditor"
+
+
+# ======================================================================
+# SRS-006：Windows
+# ======================================================================
+# -- D-W4 / D-W5 / BR-WIN-4：字型清單 --------------------------------
+def test_d_w4_windows_aligned_list_holds_the_measured_fonts():
+    """實測 9~24pt 全部剛好 2.000 的那幾個（SRS-006 §2 D-W4 的表）。"""
+    families = [family for family, _ in platforms._WINDOWS_ALIGNED]
+    for family in ("MingLiU", "NSimSun", "MS Gothic"):
+        assert family in families, family
+
+
+def test_br_win_4_no_proportional_variant_is_listed():
+    """`PMingLiU` 只比 `MingLiU` 多一個 P，比例卻是 2.13（實測）。
+
+    `MS PGothic` 同理。名字太像了，靠肉眼 review 擋不住，寫成規則。
+    """
+    for family, _ in platforms._WINDOWS_ALIGNED:
+        assert not re.match(r"^(MS )?P[A-Z]", family), family
+    assert ("PMingLiU", None) not in platforms._WINDOWS_ALIGNED
+    assert ("MS PGothic", None) not in platforms._WINDOWS_ALIGNED
+
+
+def test_d_w4_traditional_chinese_fonts_come_before_japanese_ones():
+    """本專案以繁體中文為主，原本猜的清單把日文的 MS Gothic 排第一。"""
+    families = [family for family, _ in platforms._WINDOWS_ALIGNED]
+    assert families.index("MingLiU") < families.index("NSimSun")
+    assert families.index("NSimSun") < families.index("MS Gothic")
+
+
+def test_d_w6_localised_font_names_are_listed_too():
+    """Qt 在 zh-TW 的 Windows 上同時列出 `MingLiU` 與 `細明體`；
+    其他語系不保證，兩個都寫進去比在這裡判斷 locale 乾淨。"""
+    families = [family for family, _ in platforms._WINDOWS_ALIGNED]
+    assert "細明體" in families
+    assert "MingLiU" in families
+
+
+def test_d_w4_the_always_present_fonts_are_only_fallbacks():
+    """Consolas 1.82、Cascadia Mono 1.71、Courier New 1.67——都不合格，
+    只能當退路，不得混進對齊清單。"""
+    aligned = {family for family, _ in platforms._WINDOWS_ALIGNED}
+    for family in ("Consolas", "Cascadia Mono", "Courier New", "Lucida Console"):
+        assert family not in aligned, family
+    assert ("Consolas", None) in platforms._WINDOWS_FALLBACK
+
+
+def test_the_windows_font_hint_names_something_obtainable():
+    if platforms.IS_WINDOWS:
+        assert "細明體" in platforms.FONT_HINT or "MingLiU" in platforms.FONT_HINT
+
+
+# -- D-W7 / F-WIN-08 / BR-WIN-5：Alt+C 的替代鍵 -----------------------
+def test_f_win_08_windows_adds_an_alternative_for_alt_c():
+    """實測：Alt+C 被選單列的 編碼(&C) 助憶鍵吃掉，完全按不到。"""
+    assert "column_editor" in platforms._WINDOWS_EXTRA_SHORTCUTS
+
+
+def test_br_win_5_windows_and_macos_share_the_same_alternative_key():
+    """同一個問題（按不到 Alt+C）在兩個平台上補同一個鍵，
+    肌肉記憶才不會分岔。"""
+    assert (
+        platforms._WINDOWS_EXTRA_SHORTCUTS["column_editor"]
+        == platforms._MAC_EXTRA_SHORTCUTS["column_editor"]
+    )
+
+
+def test_windows_does_not_need_function_key_alternatives():
+    """F1/F2 在 Windows 上直接按得到，不該跟著 macOS 一起補。"""
+    for action_id in ("help", "bookmark_toggle", "bookmark_next", "bookmark_prev"):
+        assert action_id not in platforms._WINDOWS_EXTRA_SHORTCUTS, action_id
+
+
+def test_the_platform_gets_its_own_extra_shortcut_table():
+    if platforms.IS_WINDOWS:
+        assert platforms.EXTRA_SHORTCUTS == platforms._WINDOWS_EXTRA_SHORTCUTS
+    elif platforms.IS_MAC:
+        assert platforms.EXTRA_SHORTCUTS == platforms._MAC_EXTRA_SHORTCUTS
+
+
+# -- F-WIN-09：設定目錄 ----------------------------------------------
+@pytest.mark.skipif(not platforms.IS_WINDOWS, reason="APPDATA 只在 Windows 分支")
+def test_f_win_09_config_dir_lives_under_appdata(monkeypatch, tmp_path):
+    monkeypatch.delenv(platforms.CONFIG_DIR_ENV, raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    assert platforms.config_dir() == tmp_path / "StephanyEditor"
+
+
+@pytest.mark.skipif(not platforms.IS_WINDOWS, reason="APPDATA 只在 Windows 分支")
+def test_config_dir_still_works_without_appdata(monkeypatch):
+    """APPDATA 在服務或精簡環境下可能不存在，不能就這樣炸開。"""
+    monkeypatch.delenv(platforms.CONFIG_DIR_ENV, raising=False)
+    monkeypatch.delenv("APPDATA", raising=False)
+    assert platforms.config_dir().name == "StephanyEditor"
