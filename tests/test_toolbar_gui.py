@@ -19,8 +19,8 @@
 平台外掛由 conftest 決定，本檔不得自己設 QT_QPA_PLATFORM（SRS-006 D-W9）。
 """
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QImage, QPalette
 from PySide6.QtWidgets import QToolBar
 
 from stephany.ui import icons, theme
@@ -31,15 +31,30 @@ def toolbar(window) -> QToolBar:
     return window.findChild(QToolBar)
 
 
-def icon_pixel(action) -> QColor:
-    """取圖示上一個不透明的像素，用來確認它被塗成了什麼顏色。"""
-    image = action.icon().pixmap(24, 24).toImage()
+def opaque_pixel(image: QImage, what: str) -> QColor:
+    """取圖上最不透明的那個像素，用來確認它被塗成了什麼顏色。
+
+    不是找 alpha 剛好 255：圖示在 HiDPI 或被縮放時，細線條可能一個全不透明
+    的像素都沒有。取最大值再要求它夠不透明，就不會被半透明像素解出來的
+    顏色誤差干擾。失敗訊息帶上尺寸與最大 alpha，遠端 CI 紅燈時才看得懂。
+    """
+    image = image.convertToFormat(QImage.Format.Format_ARGB32)
+    best = QColor(0, 0, 0, 0)
     for y in range(image.height()):
         for x in range(image.width()):
             color = image.pixelColor(x, y)
-            if color.alpha() == 255:
-                return color
-    raise AssertionError("這個圖示整張都是透明的")
+            if color.alpha() > best.alpha():
+                best = color
+    assert best.alpha() >= 200, (
+        f"{what} 量不到顏色：尺寸 {image.width()}x{image.height()}、"
+        f"最大 alpha {best.alpha()}"
+    )
+    return best
+
+
+def icon_pixel(action) -> QColor:
+    pixmap = action.icon().pixmap(QSize(24, 24))
+    return opaque_pixel(pixmap.toImage(), f"動作「{action.text()}」的圖示")
 
 
 # -- F-TB-01：按鈕以圖示表示，不顯示文字 ------------------------------
@@ -113,6 +128,22 @@ def test_f_tb_02_an_existing_hint_is_kept_as_a_second_line(window):
     tip = window.act_sticky.toolTip()
     assert "\n" in tip
     assert window.act_sticky.statusTip() in tip
+
+
+# -- 算圖本身（Windows 實際踩過：整張圖是透明的）----------------------
+def test_the_renderer_actually_paints_something_visible(app):
+    """上色用的 CompositionMode_SourceIn 只有 raster 繪圖引擎保證支援。
+
+    畫在 QPixmap 上時，Windows 可能改用原生繪圖後端，結果是一張全透明的圖
+    ——圖示不是 null（所以「每顆按鈕都有圖示」那個測試照樣過），工具列卻
+    是一排空白按鈕。這個測試直接驗算圖結果，把那一層單獨釘住。
+    """
+    wanted = QColor("#c03040")
+    for name in (entry[1] for entry in TOOLBAR_LAYOUT if entry is not None):
+        icons.clear_cache()
+        pixmap = icons.load(name, wanted).pixmap(QSize(24, 24))
+        assert not pixmap.isNull(), name
+        assert opaque_pixel(pixmap.toImage(), f"圖示 {name}").rgb() == wanted.rgb()
 
 
 # -- F-TB-03：跟著深淺主題換色 ----------------------------------------

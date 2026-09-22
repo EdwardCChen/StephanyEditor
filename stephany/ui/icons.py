@@ -33,7 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
 
 from ..resources import ICON_DIR
 
@@ -58,20 +58,27 @@ def clear_cache() -> None:
 
 
 def _render(source: Path, size: int, color: QColor) -> QPixmap:
+    """算出一張上好色的圖。
+
+    刻意畫在 `QImage` 上而不是直接畫在 `QPixmap` 上：上色用的
+    `CompositionMode_SourceIn` 只有 raster 繪圖引擎保證支援，而 `QPixmap`
+    在各平台可能改用原生繪圖後端。Windows CI 實測過——直接畫在 QPixmap 上
+    時整張圖是全透明的，工具列變成一排空白按鈕。`QImage` 一定是 raster。
+    """
     from PySide6.QtSvg import QSvgRenderer
 
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
+    image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
     QSvgRenderer(str(source)).render(painter)
     # 把算好的圖當遮罩整片上色。用 SourceIn 而不是逐像素改色，邊緣的
     # 半透明像素才會保留，小尺寸下不會有鋸齒。
     painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-    painter.fillRect(pixmap.rect(), color)
+    painter.fillRect(image.rect(), color)
     painter.end()
-    return pixmap
+    return QPixmap.fromImage(image)
 
 
 def load(name: str, color: QColor) -> QIcon:
