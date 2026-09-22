@@ -36,6 +36,9 @@ def make_palette(base, text, window, window_text, highlight):
     p.setColor(QPalette.ColorRole.Window, QColor(window))
     p.setColor(QPalette.ColorRole.WindowText, QColor(window_text))
     p.setColor(QPalette.ColorRole.Highlight, QColor(highlight))
+    # 真實的深色主題連按鈕一起換；工具列圖示的對比是對著 Button 算的
+    p.setColor(QPalette.ColorRole.Button, QColor(window))
+    p.setColor(QPalette.ColorRole.ButtonText, QColor(window_text))
     return p
 
 
@@ -144,3 +147,27 @@ def test_block_caret_and_bookmark_stand_out(palette_name, request):
     assert theme.contrast_ratio(theme.block_caret_color(palette), base) >= 3.0
     gutter = theme.gutter_background(palette)
     assert theme.contrast_ratio(theme.bookmark_color(palette), gutter) >= 3.0
+
+
+# -- 工具列圖示（SRS-007 NF-01）---------------------------------------
+@pytest.mark.parametrize("palette_name", ["dark", "light"])
+def test_toolbar_icons_stay_visible_against_the_toolbar(palette_name, request):
+    """圖示是 UI 元件，WCAG 1.4.11 要求對比至少 3:1。
+
+    工具列改成只有圖示之後，圖示看不清楚等於那顆按鈕消失——比文字看不清楚
+    更嚴重，因為沒有第二個線索。
+    """
+    palette = request.getfixturevalue(palette_name)
+    fg = theme.toolbar_icon_color(palette)
+    bg = palette.color(QPalette.ColorRole.Button)
+    assert theme.contrast_ratio(fg, bg) >= 3.0
+
+
+def test_toolbar_icon_colour_is_not_hardcoded(dark, light):
+    """寫死黑色的話，深色主題上就是一排看不見的圖（BR-TB-2）。"""
+    assert theme.toolbar_icon_color(dark) != theme.toolbar_icon_color(light)
+
+
+def test_a_hardcoded_black_icon_would_fail_on_a_dark_toolbar(dark):
+    """記錄一下「為什麼不能寫死」：這是原本最直覺的做法。"""
+    assert theme.contrast_ratio(QColor("#000000"), dark.color(QPalette.ColorRole.Button)) < 3.0

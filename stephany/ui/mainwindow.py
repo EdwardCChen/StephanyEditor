@@ -19,9 +19,10 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QEvent, QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence, QTextOption
 from PySide6.QtWidgets import (
     QDialog,
@@ -38,12 +39,34 @@ from PySide6.QtWidgets import (
 from .. import platforms
 from ..core import document as doc_io
 from ..core.macro import MacroRecorder, MacroStore, default_store_path
+from . import icons, theme
 from .dialogs import ColumnEditorDialog, FindDialog, GoToDialog
 from .editor import ColumnEditor
 from .macro_dialogs import MacroManagerDialog, RunMacroDialog
 from .highlighter import LANGUAGES, SimpleHighlighter, language_for
 
 APP_NAME = "Stephany Editor"
+
+#: 工具列版面：(動作屬性名, 圖示名稱)，None 是分隔線（SRS-007 BR-TB-1）。
+#: 只有這一份對應表，測試據此檢查每一顆按鈕都真的有圖示檔。
+TOOLBAR_LAYOUT: tuple[tuple[str, str] | None, ...] = (
+    ("act_new", "document-new"),
+    ("act_open", "document-open"),
+    ("act_save", "document-save"),
+    None,
+    ("act_undo", "edit-undo"),
+    ("act_redo", "edit-redo"),
+    None,
+    ("act_find", "edit-find"),
+    None,
+    ("act_sticky", "column-select"),
+    ("act_column_editor", "column-editor"),
+    None,
+    ("act_bm_toggle", "bookmark"),
+    ("act_fold_toggle", "fold"),
+    ("act_macro_record", "macro-record"),
+    ("act_macro_play", "macro-play"),
+)
 
 
 def _keys(sequence: str) -> str:
@@ -611,28 +634,58 @@ class MainWindow(QMainWindow):
             m.addAction(self._act(name, lambda _=False, n=name: self.set_language(n)))
 
     def _build_toolbar(self):
+        """圖示工具列（SRS-007 F-TB-01、F-TB-02）。
+
+        原本顯示的是選單用的完整文字（「摺疊 / 展開目前區塊」這種），
+        十幾顆排開就佔掉整條視窗寬度。改成只顯示圖示，名稱移到 tooltip，
+        後面附上快速鍵——圖示本來就不可能自我解釋，名稱不能消失。
+        """
         tb = self.addToolBar("主工具列")
         tb.setMovable(False)
-        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        for a in (
-            self.act_new,
-            self.act_open,
-            self.act_save,
-            None,
-            self.act_undo,
-            self.act_redo,
-            None,
-            self.act_find,
-            None,
-            self.act_sticky,
-            self.act_column_editor,
-            None,
-            self.act_bm_toggle,
-            self.act_fold_toggle,
-            self.act_macro_record,
-            self.act_macro_play,
+        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self._toolbar_icons: list[tuple[QAction, str]] = []
+        for entry in TOOLBAR_LAYOUT:
+            if entry is None:
+                tb.addSeparator()
+                continue
+            attribute, icon_name = entry
+            action = getattr(self, attribute)
+            # 圖示只用在工具列。macOS 與現在的 GNOME 選單都不放圖示，
+            # 三個平台一致比較好（SRS-007 D-06）。
+            action.setIconVisibleInMenu(False)
+            self._toolbar_icons.append((action, icon_name))
+            self._describe_for_toolbar(action)
+            tb.addAction(action)
+        self._refresh_toolbar_icons()
+
+    @staticmethod
+    def _describe_for_toolbar(action: QAction) -> None:
+        """tooltip ＝ 動作名稱（快速鍵）＋ 原本就有的補充說明。
+
+        中文選單的助記符寫法是「開新檔案(&N)」，去掉 `&` 會留下沒有意義的
+        「(N)」，所以整組括號一起拿掉——這也是 Qt 自己在 macOS 選單上的做法。
+        """
+        label = re.sub(r"\(&[A-Za-z0-9]\)", "", action.text()).replace("&", "")
+        label = label.rstrip(" .…")
+        keys = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+        head = f"{label}（{keys}）" if keys else label
+        hint = action.statusTip()  # 只有 _act(tip=...) 給過的動作才有
+        action.setToolTip(f"{head}\n{hint}" if hint else head)
+
+    def _refresh_toolbar_icons(self) -> None:
+        """依目前配色重新上色（F-TB-03）。"""
+        color = theme.toolbar_icon_color(self.palette())
+        for action, name in getattr(self, "_toolbar_icons", ()):
+            action.setIcon(icons.load(name, color))
+
+    def changeEvent(self, event):
+        """系統主題切換時，圖示要跟著換色，否則深色底上會剩一片黑。"""
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.PaletteChange,
+            QEvent.Type.ApplicationPaletteChange,
         ):
-            tb.addSeparator() if a is None else tb.addAction(a)
+            self._refresh_toolbar_icons()
 
     def _build_status_bar(self):
         self.lbl_pos = QLabel("")

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 儲存：箭頭落入承接槽（比磁片好認，磁片這個隱喻已經失效） -->
+  <path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/>
+  <path d="M12 4v10"/>
+  <path d="m8 10 4 4 4-4"/>
+</svg>

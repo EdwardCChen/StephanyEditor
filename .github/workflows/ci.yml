@@ -40,6 +40,7 @@ jobs:
             tests/test_packaging_macos.py \
             tests/test_packaging_windows.py \
             tests/test_platform.py \
+            tests/test_icons.py \
             -q -rs
 
   gui:
@@ -131,6 +132,8 @@ jobs:
           ! find "$APP" -name '__pycache__' -type d | grep -q .
           # F-MAC-12：Qt 的繁中翻譯要跟著進 bundle，否則選單會變英文
           ls "$APP"/Contents/lib/python*/site-packages/PySide6/Qt/translations/qtbase_zh_TW.qm
+          # SRS-007 NF-02：工具列圖示也要跟著進 bundle
+          test -f "$APP/Contents/Resources/app/stephany/resources/icons/bookmark.svg"
       - name: 終端機進入點可以執行（F-MAC-05）
         run: |
           "dist/Stephany Editor.app/Contents/Resources/bin/stephany-editor" --version

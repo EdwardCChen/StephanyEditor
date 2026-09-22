@@ -20,3 +20,6 @@ from pathlib import Path
 
 RESOURCE_DIR = Path(__file__).parent
 ICON_SVG = RESOURCE_DIR / "stephany-editor.svg"
+
+#: 工具列的單色圖示（SRS-007）。應用程式圖示是彩色的，用途不同，分開放。
+ICON_DIR = RESOURCE_DIR / "icons"

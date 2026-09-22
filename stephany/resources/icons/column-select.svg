@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 欄（直行）選取：文字列中間框出一個直的區塊。
+       虛線在 16px 會糊掉，所以用實線；文字列改成左右兩截短線，
+       不與方框重疊，小尺寸才不會黏成一團。 -->
+  <path d="M3 6h3M18 6h3M3 12h3M18 12h3M3 18h3M18 18h3"/>
+  <rect x="8" y="3" width="8" height="18" rx="1.5"/>
+</svg>
