@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <!-- 欄位編輯器：往同一欄由上往下填入（整欄插入文字或遞增數列）。
-       與「欄選取」共用方框，但主角是貫穿的向下箭頭。 -->
-  <rect x="6" y="3" width="12" height="18" rx="1.5" opacity=".55"/>
-  <path d="M12 6.5v8"/>
-  <path d="m8.5 11 3.5 3.5L15.5 11"/>
+  <!-- 欄位編輯器：對整個欄位做編輯（插入文字或遞增數列）。
+       第一版畫成方框裡一個向下箭頭，跟下載的符號太像（同 document-save 的教訓）。
+       改用鉛筆——編輯的通用符號，也對得上這個動作的名字。
+       欄位方框壓低到半透明當背景，主角是鉛筆，16px 下兩者都還看得到。 -->
+  <path d="M3.5 3h9v18h-9z" opacity=".5"/>
+  <path d="M21 8 15 14l-3.5.9.9-3.5 6-6a1.5 1.5 0 0 1 2.6 2.6z"/>
 </svg>
