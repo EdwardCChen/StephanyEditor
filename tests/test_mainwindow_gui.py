@@ -288,7 +288,7 @@ def test_choosing_a_font_size_in_the_dialog_changes_the_editor(window):
     from PySide6.QtWidgets import QFontDialog, QListView
 
     ed = window.editor()
-    target = 20 if ed.font().pointSize() != 20 else 16
+    before = ed.font().pointSize()
     seen = {}
 
     def pick_size():
@@ -297,11 +297,18 @@ def test_choosing_a_font_size_in_the_dialog_changes_the_editor(window):
         seen["native"] = not dialog.testOption(
             QFontDialog.FontDialogOption.DontUseNativeDialog
         )
-        sizes = dialog.findChildren(QListView)[2]
-        model = sizes.model()
-        for row in range(model.rowCount()):
-            if model.index(row, 0).data() == str(target):
-                sizes.setCurrentIndex(model.index(row, 0))
+        # 大小清單是項目全為數字的那一個；清單內容依字型而定，挑一個不同於現在的
+        for view in dialog.findChildren(QListView):
+            model = view.model()
+            items = [model.index(r, 0).data() for r in range(model.rowCount())]
+            if items and all(str(x).isdigit() for x in items):
+                seen["sizes"] = items
+                rows = [r for r, x in enumerate(items) if int(x) != before]
+                if rows:
+                    row = min(rows, key=lambda r: abs(int(items[r]) - 20))
+                    seen["target"] = int(items[row])
+                    view.setCurrentIndex(model.index(row, 0))
+        seen["dialog_font"] = dialog.currentFont().toString()
         dialog.accept()
 
     QTimer.singleShot(0, pick_size)
@@ -309,4 +316,5 @@ def test_choosing_a_font_size_in_the_dialog_changes_the_editor(window):
 
     assert seen["is_dialog"]
     assert not seen["native"]
-    assert ed.font().pointSize() == target
+    assert "target" in seen, f"對話框裡找不到可選的大小：{seen}"
+    assert ed.font().pointSize() == seen["target"], seen
