@@ -275,3 +275,38 @@ def test_the_help_text_has_no_extra_section_when_nothing_is_rebound(window):
     if platforms.EXTRA_SHORTCUTS:
         pytest.skip("這個平台有補鍵")
     assert "替代" not in window._help_text()
+
+
+# -- 字型 ---------------------------------------------------------------
+def test_choosing_a_font_size_in_the_dialog_changes_the_editor(window):
+    """檢視 → 選擇字型：選了大小要真的套用到所有分頁。
+
+    對話框必須是 Qt 自己的：GNOME 的原生 GTK 字型選擇器會把
+    `WenQuanYi Zen Hei Mono` 往返轉成 `Sans 10`，選的大小完全不見。
+    """
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QFontDialog, QListView
+
+    ed = window.editor()
+    target = 20 if ed.font().pointSize() != 20 else 16
+    seen = {}
+
+    def pick_size():
+        dialog = QApplication.activeModalWidget()
+        seen["is_dialog"] = isinstance(dialog, QFontDialog)
+        seen["native"] = not dialog.testOption(
+            QFontDialog.FontDialogOption.DontUseNativeDialog
+        )
+        sizes = dialog.findChildren(QListView)[2]
+        model = sizes.model()
+        for row in range(model.rowCount()):
+            if model.index(row, 0).data() == str(target):
+                sizes.setCurrentIndex(model.index(row, 0))
+        dialog.accept()
+
+    QTimer.singleShot(0, pick_size)
+    window.act_font.trigger()
+
+    assert seen["is_dialog"]
+    assert not seen["native"]
+    assert ed.font().pointSize() == target
