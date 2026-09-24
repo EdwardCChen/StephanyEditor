@@ -787,7 +787,15 @@ class MainWindow(QMainWindow):
         ed = self.editor()
         if ed is None:
             return
-        ok, font = QFontDialog.getFont(ed.font(), self, "選擇字型")
+        # 不用系統原生的字型對話框：GNOME 的 GTK 字型選擇器在字型往返轉換時
+        # 會把 `WenQuanYi Zen Hei Mono` 這類家族名解析錯，回傳 `Sans 10`、
+        # 字級歸零——使用者選了大小卻完全沒變化。Qt 自己的對話框各平台一致。
+        ok, font = QFontDialog.getFont(
+            ed.font(),
+            self,
+            "選擇字型",
+            QFontDialog.FontDialogOption.DontUseNativeDialog,
+        )
         if ok:
             self._font = font
             self.settings.setValue("font", font.toString())
