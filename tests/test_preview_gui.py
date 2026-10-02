@@ -518,3 +518,75 @@ def test_f_md_09_panel_state_survives_restart(app, window):
         again.setParent(None)
         again.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+
+
+# ======================================================================
+# 啟動入口：照真實啟動的組裝打開預覽不得當機
+# ======================================================================
+_LAUNCH_SCRIPT = r"""
+import sys, tempfile, time
+from pathlib import Path
+from PySide6.QtCore import QEventLoop, QSettings
+
+import stephany.ui.mainwindow as mw
+
+tmp = tempfile.mkdtemp()  # 設定不得寫到使用者真正的位置
+QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, tmp)
+mw.QSettings = lambda o, a: QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, o, a)
+mw.default_store_path = lambda: Path(tmp) / "macros.json"
+
+from stephany.__main__ import create_app
+
+app, window = create_app([sys.argv[1]])
+window.show()
+
+def spin(seconds, until=lambda: False):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and not until():
+        app.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 20)
+    return until()
+
+for round_ in range(3):
+    window.act_preview.trigger()  # 開
+    if not spin(20, lambda: window.preview is not None and window.preview.render_count > round_):
+        print("預覽沒有渲染"); sys.exit(2)
+    window.editor().textCursor().insertText("x")
+    spin(0.8)
+    window.act_preview.trigger()  # 關
+    spin(0.3)
+window.editor().document().setModified(False)
+window.close()
+spin(0.3)
+print("OK")
+"""
+
+
+def test_preview_survives_the_real_startup_wiring(tmp_path):
+    """回歸：安裝版一打開預覽就 segfault。
+
+    原因是 `__main__` 為了接 Finder 開檔，把 Python 物件掛成**整個 app 的
+    事件過濾器**——每個物件的每個事件都要經過 Python，PySide 得把接收者
+    包成 Python 物件；WebEngine 大量建立又銷毀內部物件，包到正在解構的
+    物件時就當掉。單元測試不走 `main()` 的組裝，所以一直沒抓到。
+
+    在子程序裡跑：segfault 會直接殺掉整個 pytest。
+    """
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    if not preview_module.WEBENGINE_AVAILABLE:
+        pytest.skip(f"沒有 QtWebEngine：{preview_module.WEBENGINE_IMPORT_ERROR}")
+    doc = tmp_path / "a.md"
+    doc.write_text("# 標題\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", encoding="utf-8")
+    root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, PYTHONPATH=str(root))
+    result = subprocess.run(
+        [sys.executable, "-c", _LAUNCH_SCRIPT, str(doc)],
+        capture_output=True, text=True, timeout=120, env=env, cwd=str(tmp_path),
+    )
+    assert result.returncode == 0 and "OK" in result.stdout, (
+        f"結束碼 {result.returncode}（-11／139 是 segfault）\n"
+        f"stdout:\n{result.stdout[-2000:]}\nstderr:\n{result.stderr[-2000:]}"
+    )

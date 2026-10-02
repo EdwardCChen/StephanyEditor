@@ -413,7 +413,7 @@ def test_d_07_events_arriving_before_the_window_are_queued(window, tmp_path):
     assert window.editor().toPlainText() == "排隊"
 
 
-def test_d_07_the_event_filter_understands_a_real_file_open_event(window, tmp_path):
+def test_d_07_the_relay_understands_a_real_file_open_event(window, tmp_path):
     from PySide6.QtCore import QUrl
     from PySide6.QtGui import QFileOpenEvent
 
@@ -424,10 +424,38 @@ def test_d_07_the_event_filter_understands_a_real_file_open_event(window, tmp_pa
 
     relay = _make_file_open_relay()
     relay.attach(window)
-    handled = relay.eventFilter(window, QFileOpenEvent(QUrl.fromLocalFile(str(path))))
+    handled = relay.handle(QFileOpenEvent(QUrl.fromLocalFile(str(path))))
 
     assert handled
     assert window.editor().toPlainText() == "由事件送進來"
+
+
+def test_d_07_the_application_routes_file_open_events_to_the_relay(app):
+    """開檔事件是送給 QApplication 本身的：app 的 event() 要轉給 relay。
+
+    測試程序裡已經有一個 QApplication，不能再建第二個，所以直接呼叫
+    類別上的 event()——驗的是轉送邏輯本身。
+    """
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QFileOpenEvent
+
+    from stephany.__main__ import _make_application
+
+    class Recorder:
+        def __init__(self):
+            self.events = []
+
+        def handle(self, event):
+            self.events.append(event.url().toLocalFile())
+            return True
+
+    recorder = Recorder()
+    cls = _make_application(recorder)
+    handled = cls.event(app, QFileOpenEvent(QUrl.fromLocalFile("/tmp/x.txt")))
+    assert handled is True
+    assert recorder.events == ["/tmp/x.txt"]
+    # 其他事件照常交給 QApplication 由 test_preview_gui 的
+    # test_preview_survives_the_real_startup_wiring 以真正的 app 涵蓋
 
 
 def test_launch_services_process_serial_argument_is_not_treated_as_a_file():

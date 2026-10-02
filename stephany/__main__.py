@@ -158,25 +158,23 @@ def _make_file_open_relay():
     在 Finder 雙擊檔案、或把檔案拖到 Dock 圖示上時，macOS 不是用命令列參數
     傳檔名，而是送一個事件給已經在跑的程序。這個事件可能比主視窗還早到
     （冷啟動時就是這樣），所以先排隊，等視窗建好再一次補開。
-    """
-    from PySide6.QtCore import QEvent, QObject
 
-    class FileOpenRelay(QObject):
+    事件由 `_make_application()` 的 `event()` 轉進來，**不是**掛成整個 app
+    的事件過濾器——理由見那裡。
+    """
+
+    class FileOpenRelay:
         def __init__(self):
-            super().__init__()
             self.pending: list[str] = []
             self.window = None
 
-        def eventFilter(self, obj, event):
-            if event.type() == QEvent.Type.FileOpen:
-                url = event.url()
-                path = event.file() or (
-                    url.toLocalFile() if url.isLocalFile() else ""
-                )
-                if path:
-                    self.deliver(path)
-                return True
-            return False
+        def handle(self, event) -> bool:
+            """處理一個 QFileOpenEvent；回傳是否吃掉了它。"""
+            url = event.url()
+            path = event.file() or (url.toLocalFile() if url.isLocalFile() else "")
+            if path:
+                self.deliver(path)
+            return True
 
         def deliver(self, path: str) -> None:
             """已經有視窗就直接開新分頁，否則排隊等視窗建好。"""
@@ -196,6 +194,30 @@ def _make_file_open_relay():
     return FileOpenRelay()
 
 
+def _make_application(relay):
+    """建一個會把 `QFileOpenEvent` 轉給 `relay` 的 QApplication 類別。
+
+    macOS 的開檔事件是送給 QApplication **本身**的，覆寫它的 `event()` 就接得到。
+
+    以前的做法是 `app.installEventFilter(relay)`，那會讓程式裡**每一個物件**
+    的**每一個事件**都先經過 Python：PySide 必須把接收者包成 Python 物件。
+    QtWebEngine 大量建立又銷毀內部的 C++ 物件，包到正在解構的物件時
+    PySide 會讀到空指標而 segfault——安裝版一打開 Markdown 預覽就當機
+    （SRS-008）。覆寫 `event()` 只看送給 app 的事件，沒有這個問題，
+    也省掉每個事件都進出 Python 一趟的成本。
+    """
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
+
+    class StephanyApplication(QApplication):
+        def event(self, event):
+            if event.type() == QEvent.Type.FileOpen:
+                return relay.handle(event)
+            return super().event(event)
+
+    return StephanyApplication
+
+
 def _cli_files(argv: list[str]) -> list[str]:
     """去掉 LaunchServices 可能塞進來的程序序號參數（例如 -psn_0_12345）。"""
     return [a for a in argv if not a.startswith("-psn_")]
@@ -213,27 +235,35 @@ def main(argv: list[str] | None = None) -> int:
         "--version", action="version", version=f"Stephany Editor {__version__}"
     )
     args = parser.parse_args(_cli_files(argv))
+    app, window = create_app(args.files)
+    window.show()
+    return app.exec()
 
-    from PySide6.QtWidgets import QApplication
 
+def create_app(files: list[str]):
+    """建好 QApplication 與主視窗（尚未 show）。
+
+    與 `main()` 分開，測試才能走和真實啟動完全相同的組裝路徑——
+    SRS-008 的預覽當機就是只有這條路徑才會發生。
+    回傳的 app 身上掛著 `relay`，讓它與 app 同生命週期。
+    一個程序只能有一個 QApplication，所以只能在全新的程序裡呼叫。
+    """
     from .ui.mainwindow import MainWindow
 
     from .ui.preview import prepare_webengine
 
     prepare_webengine()  # 必須在 QApplication 之前（SRS-008 D-01）
-    app = QApplication(sys.argv[:1])
+    # app 一建立就接得到開檔事件：冷啟動時它會比主視窗早到，先排隊
+    relay = _make_file_open_relay()
+    app = _make_application(relay)(sys.argv[:1])
     configure_identity(app)
     install_translations(app)  # 必須早於 MainWindow —— 選單列建好就來不及了
-
-    # 事件過濾器必須在建視窗之前就掛上，冷啟動時的開檔事件才接得到
-    relay = _make_file_open_relay()
-    app.installEventFilter(relay)
     app.processEvents()
+    app.relay = relay
 
-    window = MainWindow(args.files + relay.pending)
+    window = MainWindow(list(files) + relay.pending)
     relay.attach(window)
-    window.show()
-    return app.exec()
+    return app, window
 
 
 if __name__ == "__main__":
