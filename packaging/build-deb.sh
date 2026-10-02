@@ -119,8 +119,8 @@ Version: $VERSION
 Section: editors
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.10), python3-pyside6.qtcore, python3-pyside6.qtgui, python3-pyside6.qtwidgets
-Recommends: fonts-noto-cjk
+Depends: python3 (>= 3.10), python3-pyside6.qtcore, python3-pyside6.qtgui, python3-pyside6.qtwidgets, python3-markdown-it, python3-mdit-py-plugins, python3-linkify-it, python3-pygments
+Recommends: fonts-noto-cjk, python3-pyside6.qtwebenginecore, python3-pyside6.qtwebenginewidgets
 Maintainer: $MAINTAINER
 Homepage: $HOMEPAGE
 Installed-Size: $INSTALLED_KB
@@ -132,6 +132,9 @@ Description: 支援中文欄（直行）模式的文字編輯器
  .
  另含書籤、巨集錄製（錄語意命令而非鍵盤按鍵，中文輸入法打的字也錄得到）、
  程式碼摺疊、正規表示式尋找取代，以及 Big5 / UTF-8 / GB18030 編碼偵測。
+ .
+ 編輯 Markdown 時可在右側開啟仿 GitHub 樣式的即時預覽（需要 QtWebEngine，
+ 未安裝時退回簡易模式）。
 EOF
 
 # BR-PK-3：安裝與移除後更新桌面資料庫與圖示快取
