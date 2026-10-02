@@ -74,3 +74,14 @@
    把第三方 JS 原始碼放進本專案的版控與授權清單。選 Python 端轉換。
 3. **若 WebEngine 在某平台根本不能用？** D-11 的降級路徑讓預覽仍可用（長相退回
    簡易版），不會讓編輯器起不來。
+
+## 實作偏離與發現
+
+| 項目 | 偏離／發現 | 處理 |
+|---|---|---|
+| 相依 | 計畫沒列 `linkify-it-py`：markdown-it 的 `gfm-like` 預設要它才能把裸網址變連結（GitHub 的行為） | 加入 requirements 與 deb Depends（`python3-linkify-it`） |
+| NF-03 | 1 秒門檻在 GitHub Actions runner 上隨機紅燈（Python 3.10 runner 1.23 秒、Windows 1.03 秒；開發機 0.27 秒） | 規格改為「開發機 < 1 秒，測試門檻 3 秒防數量級退化」 |
+| 測試隔離 | conftest 只把 INI 格式的設定導到暫存目錄；主視窗的 `QSettings(org, app)` 在 macOS 是 plist、Windows 是登錄檔，**既有測試一直在讀寫使用者真正的設定** | 抽出 `isolated_settings` fixture 強制改用 INI，既有自建主視窗的測試也改用它 |
+| WebEngine 回呼 | 面板被刪除後，還在途中的 `runJavaScript` 回呼才回來，對已刪除的物件發信號 | 回呼開頭以 `shiboken6.isValid()` 檢查 |
+| PySide6 6.11 | `QUrl.adjusted(RemoveFragment)` 綁定不接受該列舉 | 改用字串比對 |
+| 打包大小 | macOS `.app` 實測 343 MB → 1.2 GB | 已知悉（A1 拍板時即說明），寫進 README |
