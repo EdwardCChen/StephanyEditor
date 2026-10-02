@@ -68,6 +68,8 @@ TOOLBAR_LAYOUT: tuple[tuple[str, str] | None, ...] = (
     ("act_fold_toggle", "fold"),
     ("act_macro_record", "macro-record"),
     ("act_macro_play", "macro-play"),
+    None,
+    ("act_preview", "preview"),  # SRS-008 BR-MD-5
 )
 
 
