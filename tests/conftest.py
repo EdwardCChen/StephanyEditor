@@ -47,6 +47,11 @@ import pytest  # noqa: E402
 def app():
     from PySide6.QtWidgets import QApplication
 
+    # QtWebEngine 必須在 QApplication 建立之前載入（SRS-008 D-01），
+    # 與 __main__ 走同一個入口，沒裝 WebEngine 時什麼也不做。
+    from stephany.ui.preview import prepare_webengine
+
+    prepare_webengine()
     instance = QApplication.instance() or QApplication([])
     yield instance
     # QClipboard.setMimeData() 會把 QMimeData 的所有權轉給剪貼簿；若關閉時
