@@ -20,8 +20,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: 安裝測試工具
-        run: python -m pip install --upgrade pip pytest
+      - name: 安裝測試工具與純 Python 相依（不含 PySide6）
+        run: |
+          python -m pip install --upgrade pip pytest
+          grep -v '^PySide6' requirements.txt | python -m pip install -r /dev/stdin
       - name: 確認 core 層沒有相依 Qt
         run: |
           if grep -rn "PySide6\|PyQt" stephany/core/ stephany/platforms.py; then
@@ -41,6 +43,7 @@ jobs:
             tests/test_packaging_windows.py \
             tests/test_platform.py \
             tests/test_icons.py \
+            tests/test_markdown.py \
             -q -rs
 
   gui:
