@@ -409,3 +409,112 @@ def test_d_11_falls_back_when_webengine_is_missing(monkeypatch, cleanup):
     pv = MarkdownPreview()
     cleanup.append(pv)
     assert pv.backend == "textbrowser"
+
+
+# ======================================================================
+# 主視窗接線：F-MD-01、F-MD-05、F-MD-09
+# ======================================================================
+def open_preview(app, window):
+    window.show()
+    if not window.act_preview.isChecked():
+        window.act_preview.trigger()
+    wait_until(app, lambda: window.preview_dock.isVisible(), "預覽面板出現")
+    pv = window.preview
+    wait_until(app, lambda: pv.render_count > 0, "預覽第一次渲染")
+    return pv
+
+
+def test_f_md_01_action_is_in_view_menu_with_shortcut(window):
+    from PySide6.QtGui import QKeySequence
+    from PySide6.QtWidgets import QMenu
+
+    action = window.act_preview
+    assert action.isCheckable()
+    assert action.shortcut() == QKeySequence("Ctrl+Shift+V")
+    view = [m for m in window.menuBar().findChildren(QMenu) if m.title() == "檢視(&V)"]
+    assert action in view[0].actions()
+
+
+def test_f_md_01_shortcut_is_not_taken_by_anything_else(window):
+    from PySide6.QtGui import QAction, QKeySequence
+
+    clashes = [
+        a.text() for a in window.findChildren(QAction)
+        if a is not window.act_preview and QKeySequence("Ctrl+Shift+V") in a.shortcuts()
+    ]
+    assert clashes == []
+
+
+def test_f_md_01_preview_is_off_and_not_built_by_default(window):
+    """沒開預覽的人不該為 WebEngine 的啟動時間付費。"""
+    assert not window.act_preview.isChecked()
+    assert not window.preview_dock.isVisibleTo(window)
+    assert window.preview is None
+
+
+def test_f_md_01_toggle_shows_current_tab(app, window):
+    window.editor().setPlainText("# 目前分頁")
+    pv = open_preview(app, window)
+    assert window.act_preview.isChecked()
+    assert pv.current_editor() is window.editor()
+
+
+def test_f_md_05_switching_tabs_switches_preview(app, window):
+    first = window.editor()
+    pv = open_preview(app, window)
+    second = window.new_tab()
+    assert pv.current_editor() is second
+    window.tabs.setCurrentWidget(first)
+    assert pv.current_editor() is first
+
+
+def test_closing_the_panel_unchecks_and_stops_following(app, window):
+    pv = open_preview(app, window)
+    window.preview_dock.close()
+    wait_until(app, lambda: not window.act_preview.isChecked(), "動作取消勾選")
+    assert pv.current_editor() is None
+    window.new_tab()
+    assert pv.current_editor() is None
+
+
+def test_closing_a_tab_moves_preview_to_the_remaining_one(app, window):
+    first = window.editor()
+    pv = open_preview(app, window)
+    window.new_tab()
+    window.close_tab(window.tabs.currentIndex())
+    assert pv.current_editor() is first
+
+
+def test_save_as_refreshes_preview(app, window, monkeypatch, tmp_path):
+    import stephany.ui.mainwindow as mw
+
+    window.editor().setPlainText("# 標題")
+    pv = open_preview(app, window)
+    target = tmp_path / "a.py"
+    monkeypatch.setattr(mw.QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+    before = pv.render_count
+    window.save_as()
+    # 要立即刷新，不是等 debounce：另存時重新上色也會觸發內容變動，
+    # 等滿 debounce 的話，有沒有接上「換路徑就刷新」都會變綠
+    wait_until(app, lambda: pv.render_count > before, "另存後立即刷新", pv.DEBOUNCE_MS / 2000)
+    if pv.backend == "webengine":
+        assert "不是 Markdown" in js(app, pv, "document.getElementById('content').innerText")
+
+
+def test_f_md_09_panel_state_survives_restart(app, window):
+    import stephany.ui.mainwindow as mw
+
+    open_preview(app, window)
+    window.close()
+    again = mw.MainWindow([])
+    try:
+        again.show()
+        assert again.act_preview.isChecked()
+        wait_until(app, lambda: again.preview_dock.isVisible(), "重開後預覽面板出現")
+    finally:
+        for index in range(again.tabs.count()):
+            again.tabs.widget(index).document().setModified(False)
+        again.close()
+        again.setParent(None)
+        again.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)

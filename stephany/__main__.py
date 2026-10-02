@@ -218,6 +218,9 @@ def main(argv: list[str] | None = None) -> int:
 
     from .ui.mainwindow import MainWindow
 
+    from .ui.preview import prepare_webengine
+
+    prepare_webengine()  # 必須在 QApplication 之前（SRS-008 D-01）
     app = QApplication(sys.argv[:1])
     configure_identity(app)
     install_translations(app)  # 必須早於 MainWindow —— 選單列建好就來不及了

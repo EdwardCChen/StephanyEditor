@@ -174,12 +174,9 @@ def test_saved_macro_can_be_replayed_after_reload(window, tmp_path):
     assert ed.toPlainText() == "----"
 
 
-def test_nf_03_corrupt_macro_file_does_not_block_startup(app, tmp_path, monkeypatch):
-    import stephany.ui.mainwindow as mw
-
+def test_nf_03_corrupt_macro_file_does_not_block_startup(app, tmp_path, isolated_settings):
     (tmp_path / "macros.json").write_text("壞掉的內容", encoding="utf-8")
-    monkeypatch.setattr(mw, "default_store_path", lambda: tmp_path / "macros.json")
-    win = mw.MainWindow([])
+    win = isolated_settings.MainWindow([])
     assert win.macro_store.macros == {}
     assert "無法讀取" in win.statusBar().currentMessage()
     win.editor().document().setModified(False)

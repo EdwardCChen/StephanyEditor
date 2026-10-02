@@ -26,6 +26,7 @@ from PySide6.QtCore import QEvent, QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence, QTextOption
 from PySide6.QtWidgets import (
     QDialog,
+    QDockWidget,
     QFileDialog,
     QInputDialog,
     QFontDialog,
@@ -43,6 +44,7 @@ from . import icons, theme
 from .dialogs import ColumnEditorDialog, FindDialog, GoToDialog
 from .editor import ColumnEditor
 from .macro_dialogs import MacroManagerDialog, RunMacroDialog
+from .preview import MarkdownPreview
 from .highlighter import LANGUAGES, SimpleHighlighter, language_for
 
 APP_NAME = "Stephany Editor"
@@ -113,6 +115,7 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self.setCentralWidget(self.tabs)
 
+        self._build_preview_dock()  # 必須在動作之前：act_preview 是它的切換動作
         self._build_actions()
         self._build_menus()
         self._build_toolbar()
@@ -168,6 +171,10 @@ class MainWindow(QMainWindow):
         self.tabs.setTabToolTip(index, ed.file_path or "")
         if ed is self.editor():
             self._update_window_title()
+        # 另存新檔、開檔到空白分頁都會換掉路徑：基準目錄與「是不是 Markdown」
+        # 可能跟著變（F-MD-06、F-MD-07）
+        if self.preview is not None and self.preview.current_editor() is ed:
+            self.preview.refresh()
 
     def _update_window_title(self):
         ed = self.editor()
@@ -187,6 +194,8 @@ class MainWindow(QMainWindow):
             self.act_wrap.setChecked(
                 ed.lineWrapMode() != ColumnEditor.LineWrapMode.NoWrap
             )
+        if self.preview is not None and self.preview_dock.isVisible():
+            self.preview.set_editor(ed)  # F-MD-05
 
     def close_tab(self, index: int) -> bool:
         ed = self.tabs.widget(index)
@@ -457,6 +466,10 @@ class MainWindow(QMainWindow):
             )
             self.act_fold_levels.append(act)
 
+        self.act_preview = self.preview_dock.toggleViewAction()  # F-MD-01、D-04
+        self.act_preview.setText("Markdown 預覽(&P)")
+        self.act_preview.setShortcut("Ctrl+Shift+V")
+        self.act_preview.setMenuRole(QAction.MenuRole.NoRole)  # BR-MAC-7
         self.act_wrap = self._act("自動換行", self.toggle_wrap, checkable=True)
         self.act_whitespace = self._act("顯示空白與 TAB", self.toggle_whitespace, checkable=True)
         self.act_font = self._act("選擇字型(&F)...", self.choose_font)
@@ -596,6 +609,8 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_about)
 
         m = bar.addMenu("檢視(&V)")
+        m.addAction(self.act_preview)
+        m.addSeparator()
         m.addAction(self.act_wrap)
         m.addAction(self.act_whitespace)
         m.addSeparator()
@@ -641,6 +656,7 @@ class MainWindow(QMainWindow):
         後面附上快速鍵——圖示本來就不可能自我解釋，名稱不能消失。
         """
         tb = self.addToolBar("主工具列")
+        tb.setObjectName("main_toolbar")  # saveState() 靠 objectName 認人
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self._toolbar_icons: list[tuple[QAction, str]] = []
@@ -686,6 +702,34 @@ class MainWindow(QMainWindow):
             QEvent.Type.ApplicationPaletteChange,
         ):
             self._refresh_toolbar_icons()
+
+    def _build_preview_dock(self):
+        """Markdown 預覽的停駐面板（SRS-008 D-03）。
+
+        面板本身先建好（`restoreState()` 與切換動作都需要它），裡面的
+        `MarkdownPreview` 等第一次顯示才建：沒開預覽的人不必為 WebEngine
+        的啟動時間付費。面板關著時也不跟著編輯器，打字不會在背景重畫。
+        """
+        self.preview: MarkdownPreview | None = None
+        dock = QDockWidget("Markdown 預覽", self)
+        dock.setObjectName("markdown_preview")
+        dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        dock.hide()
+        dock.visibilityChanged.connect(self._on_preview_visibility)
+        self.preview_dock = dock
+
+    def _on_preview_visibility(self, visible: bool):
+        if visible:
+            if self.preview is None:
+                self.preview = MarkdownPreview(self.preview_dock)
+                self.preview_dock.setWidget(self.preview)
+                self.resizeDocks([self.preview_dock], [self.width() // 2], Qt.Orientation.Horizontal)
+            self.preview.set_editor(self.editor())
+        elif self.preview is not None:
+            self.preview.set_editor(None)
 
     def _build_status_bar(self):
         self.lbl_pos = QLabel("")
@@ -1056,6 +1100,9 @@ class MainWindow(QMainWindow):
         geom = self.settings.value("geometry")
         if geom:
             self.restoreGeometry(geom)
+        state = self.settings.value("window_state")
+        if state:
+            self.restoreState(state)  # F-MD-09：預覽面板開關與寬度
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -1068,11 +1115,16 @@ class MainWindow(QMainWindow):
         event.acceptProposedAction()
 
     def closeEvent(self, event):
+        # 要在拿掉分頁之前存：之後面板還在，但編輯器都沒了
+        state = self.saveState()
         while self.tabs.count():
             ed = self.tabs.widget(0)
             if not self._maybe_save(ed):
                 event.ignore()
                 return
             self.tabs.removeTab(0)
+        if self.preview is not None:
+            self.preview.set_editor(None)
         self.settings.setValue("geometry", self.saveGeometry())
+        self.settings.setValue("window_state", state)
         event.accept()

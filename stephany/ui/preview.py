@@ -177,6 +177,9 @@ class MarkdownPreview(QWidget):
             self._ratio = self._editor_ratio()
         self.refresh()
 
+    def current_editor(self) -> QPlainTextEdit | None:
+        return self._editor
+
     def _schedule(self) -> None:
         self._timer.start()  # 重新計時：連續打字只在停手後畫一次
 
