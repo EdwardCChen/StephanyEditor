@@ -21,9 +21,13 @@ sudo apt install ./dist/stephany-editor_*.deb
 裝好之後會出現在 GNOME 應用程式選單，也可以從終端機用 `stephany-editor 檔案` 開檔。
 移除用 `sudo apt remove stephany-editor`。
 
-套件相依系統的 `python3-pyside6.*`（Ubuntu 24.04 以上內建），不內嵌 venv——
-否則會從約 300 KB 膨脹到 100 MB 以上，Qt 也拿不到系統的安全性更新。
-建置腳本只用 `dpkg-deb`，不需要 debhelper，也不需要 root。
+套件相依系統的 `python3-pyside6.*`（Ubuntu 24.10 起才收錄；目前仍在支援期的是
+26.04 LTS），不內嵌 venv——否則會從約 300 KB 膨脹到 100 MB 以上，Qt 也拿不到
+系統的安全性更新。建置腳本只用 `dpkg-deb`，不需要 debhelper，也不需要 root。
+
+**Ubuntu 24.04 LTS 沒有 PySide6 套件**，`apt install` 會因相依無法滿足而拒絕安裝。
+請改走[從原始碼執行](#從原始碼執行)：`sudo apt install python3-venv` 之後
+`./run.sh` 會用 pip 裝 PySide6 到 `.venv`，再用 `./install-desktop.sh` 註冊到選單。
 
 Markdown 預覽的轉換套件（`python3-markdown-it` 等，小型純 Python）列在相依；
 預覽用的 QtWebEngine（`python3-pyside6.qtwebengine*`，會拉進整套 Chromium）
