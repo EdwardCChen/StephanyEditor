@@ -20,7 +20,7 @@
 | 編號 | 決策 | 理由 |
 |---|---|---|
 | **D-01** | `app_id` / `.desktop` 檔名 / `StartupWMClass` 三者一律使用 `stephany-editor` | 桌面環境是靠這三者比對才知道「這個視窗屬於那個已安裝的應用程式」。任一不一致，Dock 就會顯示成通用的執行檔名稱 |
-| **D-02** | 相依系統的 `python3-pyside6.*` 套件，不在 deb 內打包 venv | Ubuntu 26.04 已收錄 PySide6 6.10；內嵌 venv 會讓套件從約 300 KB 膨脹到 100 MB 以上，且 Qt 無法跟著系統更新拿到安全性修補 |
+| **D-02** | 相依系統的 `python3-pyside6.*` 套件，不在 deb 內打包 venv | Ubuntu 26.04 已收錄 PySide6 6.10；內嵌 venv 會讓套件從約 300 KB 膨脹到 100 MB 以上，且 Qt 無法跟著系統更新拿到安全性修補。代價：**24.04 LTS 裝不了 deb**——PySide6 是 24.10 才進 universe（6.6.2），24.04 的 Release／Updates／Backports 都只有 pyside2（Launchpad 查證）。24.04 使用者改走 `run.sh` + `install-desktop.sh`。各版收錄的都 ≥ 6.6，與 `requirements.txt` 一致，故 `Depends` 不必加版本下限 |
 | **D-03** | 以 `dpkg-deb` 直接組出二進位套件，不用 debhelper | 建構主機不必安裝 debhelper/dh-python/devscripts（那些需要 root 權限），任何 Ubuntu 機器 clone 下來就能建。代價是不適合投稿到官方套件庫，但本專案的目標是自用安裝 |
 | **D-04** | 純 Python 程式碼裝到 `/usr/share/stephany-editor/`，`/usr/bin` 只放啟動器 | 與架構無關的資料依 FHS 應放 `/usr/share`；套件標為 `Architecture: all` |
 | **D-05** | `fonts-noto-cjk` 列為 Recommends 而非 Depends | 它是欄模式對齊的前提，但體積大（約 60 MB）；apt 預設會安裝 Recommends，且程式本身已在字型不合格時於狀態列警告 |
