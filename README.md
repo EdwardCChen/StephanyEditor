@@ -25,6 +25,11 @@ sudo apt install ./dist/stephany-editor_*.deb
 否則會從約 300 KB 膨脹到 100 MB 以上，Qt 也拿不到系統的安全性更新。
 建置腳本只用 `dpkg-deb`，不需要 debhelper，也不需要 root。
 
+Markdown 預覽的轉換套件（`python3-markdown-it` 等，小型純 Python）列在相依；
+預覽用的 QtWebEngine（`python3-pyside6.qtwebengine*`，會拉進整套 Chromium）
+列在**建議**（Recommends）——`apt` 預設會一起裝，刻意加 `--no-install-recommends`
+的話預覽會退回簡易模式，見下面「Markdown 預覽」。
+
 ### macOS
 
 ```bash
@@ -282,9 +287,9 @@ parser 的維護成本太高，而這兩種已涵蓋絕大多數實際檔案。
 
 ## 工具列
 
-十二顆常用功能以圖示表示，名稱與快速鍵放在 tooltip 裡。原本直接沿用選單文字
+常用功能以圖示表示，名稱與快速鍵放在 tooltip 裡。原本直接沿用選單文字
 （「摺疊 / 展開目前區塊」這種），十二顆排開需要 999 px，把 1100 px 的視窗寬度
-幾乎吃光；改成圖示後是 451 px。
+幾乎吃光；改成圖示後是 451 px（後來加上 Markdown 預覽成為 13 顆、481 px）。
 
 圖示是本專案自己畫的單色 SVG，不是 `QIcon.fromTheme()`——那是 freedesktop 的
 機制，只有 Linux 有（實測 macOS 上 `QIcon.themeName()` 是空字串，`document-new`
@@ -294,6 +299,42 @@ parser 的維護成本太高，而這兩種已涵蓋絕大多數實際檔案。
 顏色不寫死：載入時把整張圖當遮罩，塗上由 `QPalette` 推導的按鈕文字色，
 所以深色主題下自動變成淺色，中途切換主題也會立刻跟著變。測試會驗證圖示與
 工具列底色的對比度 ≥ 3:1（WCAG 對非文字內容的要求）。
+
+## Markdown 預覽
+
+![Markdown 預覽](docs/markdown-preview.png)
+
+| 操作 | 動作 |
+|---|---|
+| `Ctrl` + `Shift` + `V`、檢視選單、工具列的 👁 | 開關右側的預覽面板 |
+
+用來邊打邊確認排版：標題層級、表格欄位與對齊、清單是不是真的巢狀、
+圖片路徑有沒有寫對。樣式仿 GitHub（深色主題下用 GitHub 的深色配色），
+支援 GitHub Flavored Markdown：表格、核取清單、刪除線、裸網址自動連結、
+註腳、行內 HTML，圍欄程式碼區塊依標示的語言上色。可以拿 `samples/demo.md` 試。
+
+- 停止打字 0.3 秒後更新，只換掉內容、不重載整頁，所以捲動位置不會跳回頂端
+- 捲動依**比例**跟隨編輯器（編輯器捲到 40%，預覽也到 40%）。這是近似值，
+  圖片或大表格多的文件會有落差
+- 相對路徑的圖片以該檔案所在的目錄為基準；未存檔的分頁沒有基準目錄
+- 只預覽 `.md`／`.markdown` 等副檔名與未命名的分頁，其他檔案顯示提示
+- 開關狀態與面板寬度會記住
+
+**安全性**：Markdown 可以內嵌 HTML，所以預覽頁面的 JavaScript 一律關閉——
+打開別人寫的 `.md` 不會執行裡面的 `<script>` 或 `onerror=`。點連結時
+`http(s)`／`mailto` 交給系統瀏覽器，其他導覽一律攔下。**遠端圖片會載入**
+（與 GitHub 一致，否則 README 頂端的 badge 全是破圖），代價是開啟檔案時會對
+圖片所在的伺服器發出請求。
+
+**為什麼用 WebEngine**：Qt 內建的 `setMarkdown()` 能正確解讀結構，但它不是
+瀏覽器，CSS 支援有限，長相與 GitHub 差很多；而這個功能的目的正是「在 GitHub
+上會長怎樣」。代價是相依 `PySide6-Addons`：macOS 的 `.app` 從 343 MB 變成
+1.2 GB，Windows 安裝同比例變大。執行環境沒有 QtWebEngine 時，預覽退回
+`QTextBrowser` 的簡易模式並在面板上方註明，編輯器其餘功能不受影響。
+
+**不支援**：數學式（`$...$`）、Mermaid 圖、GitHub 專屬的 `> [!NOTE]` 提示框、
+emoji 短碼（`:smile:`），這些會顯示為原始文字。與 GitHub 是「接近」而不是
+像素一致。
 
 ## 其他功能
 
@@ -318,6 +359,7 @@ stephany/
 │   ├── bookmarks.py   # 書籤
 │   ├── folding.py     # 可摺疊區塊偵測（縮排／大括號）與摺疊狀態
 │   ├── macro.py       # 巨集步驟、錄製、序列化、重播停止條件
+│   ├── markdown.py    # Markdown → HTML、預覽頁面外殼與樣式、哪些檔案要預覽
 │   └── document.py    # 編碼偵測、BOM、換行字元
 ├── resources/         # 應用程式圖示與工具列圖示（隨套件安裝，原始碼執行時也找得到）
 │   └── icons/         # 工具列的單色 SVG，執行時依配色上色
@@ -329,6 +371,7 @@ stephany/
     ├── mainwindow.py    # 分頁、選單、狀態列
     ├── dialogs.py       # 尋找取代、欄位編輯器、跳至行號
     ├── macro_dialogs.py # 巨集播放與管理
+    ├── preview.py       # Markdown 預覽面板（WebEngine／簡易模式）
     ├── highlighter.py   # 語法上色
     └── linenumbers.py   # 行號欄、書籤標記、摺疊箭號
 ```
@@ -357,7 +400,7 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
 .venv/bin/python -m pytest tests -q
 ```
 
-428 個測試，涵蓋：
+512 個測試（各平台會 skip 不適用於該平台的部分），涵蓋：
 
 - **寬度與矩形**：切到全形字、切到 TAB、短行不被撐長、剪下再貼回可還原
 - **書籤**：文件增減行時的平移、被刪除的行、繞回式跳轉、連續區間合併
@@ -369,6 +412,10 @@ CI 的核心測試 job 刻意**不安裝 PySide6**，並檢查 `core/` 沒有 im
   tooltip 帶得到快速鍵、切換深色主題時圖示跟著換色、對比度 >= 3:1
 - **平台**：字型清單上標成「對得齊」的每一個字型都實際量測、設定目錄慣例、
   macOS 替代鍵確實綁上、`Info.plist` 與 bundle id 的一致性
+- **Markdown 預覽**：GFM 各語法、程式碼內容一律跳脫、頁面不從網路載入樣式、
+  打字時 debounce 且只換內容不重載整頁、捲動比例跟隨、內嵌的 `<script>` 與
+  `onerror=` 不會執行、連結攔截、相對路徑圖片、切換分頁／另存新檔時跟著更新、
+  沒有 WebEngine 時的簡易模式、1 MB 檔案的轉換時間
 - **GUI**：輸入法送字、矩形複製貼上、undo、跨分頁共用錄製器、選單動作接線
 - **macOS**：`⌥`+字母不得被當成輸入、`Ctrl` 確實對映成 `⌘`、
   「關於／結束」的選單角色、Finder 開檔事件
@@ -471,9 +518,17 @@ LaunchServices 啟動 `.app` 時不給任何參數）。所以進入點就是正
 | deb 打包與桌面整合（SRS-004 F-PK） | ✅ 完成 |
 | macOS 支援與 .app 打包（SRS-005 F-MAC） | ✅ 完成 |
 | Windows 支援與安裝（SRS-006 F-WIN） | ✅ 完成 |
+| 工具列圖示（SRS-007 F-TB） | ✅ 完成 |
+| Markdown 預覽（SRS-008 F-MD） | ✅ 完成（Linux 上的 Chromium 沙箱未實機驗證，見下） |
 | 檔案比對 | ⬜ 未規劃 |
 | 工作階段還原 | ⬜ 未規劃 |
 | 外掛系統 | ⬜ 未規劃 |
+
+Markdown 預覽在 macOS 上以建好的 `.app` 實機驗證過（bundle 內的 WebEngine
+子程序正常啟動、圖片與程式碼上色都有）；Linux 與 Windows 由 CI 驗證。
+**Ubuntu 桌面上的 deb 尚未實機驗證**：Ubuntu 24.04 起 AppArmor 限制非特權的
+user namespace，Chromium 的沙箱可能因此起不來（CI 上是以
+`QTWEBENGINE_DISABLE_SANDBOX=1` 繞過的）。
 
 規格文件在 [docs/](docs/)。程式碼註解、測試名稱與 commit message 都引用
 規格編號（如 `F-BM-09`、`BR-MC-3`、`D-01`），可以從任一處反查「為什麼這樣做」。

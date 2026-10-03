@@ -192,6 +192,44 @@ def test_d_05_cjk_font_is_recommended_not_required():
     assert "Recommends: fonts-noto-cjk" in script
 
 
+def _control_field(name: str) -> list[str]:
+    script = BUILD_SCRIPT.read_text(encoding="utf-8")
+    line = script.split(f"\n{name}: ")[1].split("\n")[0]
+    return [item.strip() for item in line.split(",")]
+
+
+#: requirements.txt 的 pip 套件 → Ubuntu 系統套件。新增 pip 相依卻忘了 deb
+#: 時，下面的測試會紅燈。
+PIP_TO_DEB = {
+    "markdown-it-py": "python3-markdown-it",
+    "mdit-py-plugins": "python3-mdit-py-plugins",
+    "linkify-it-py": "python3-linkify-it",
+    "Pygments": "python3-pygments",
+}
+
+
+def test_srs008_d_12_every_pure_python_requirement_is_a_deb_dependency():
+    requirements = [
+        re.split(r"[<>=!~ ]", line)[0]
+        for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith(("#", "PySide6"))
+    ]
+    assert requirements, "requirements.txt 讀不到東西"
+    unmapped = [name for name in requirements if name not in PIP_TO_DEB]
+    assert unmapped == [], f"這些 pip 相依沒有對應的 deb 套件：{unmapped}"
+    depends = _control_field("Depends")
+    assert [PIP_TO_DEB[n] for n in requirements if PIP_TO_DEB[n] not in depends] == []
+
+
+def test_srs008_d_12_webengine_is_recommended_not_required():
+    """WebEngine 會拉進整套 Chromium；沒裝時預覽降級成簡易模式（D-11）。"""
+    recommends = _control_field("Recommends")
+    depends = _control_field("Depends")
+    for pkg in ("python3-pyside6.qtwebenginecore", "python3-pyside6.qtwebenginewidgets"):
+        assert pkg in recommends
+        assert pkg not in depends
+
+
 def test_package_is_architecture_independent():
     assert "Architecture: all" in BUILD_SCRIPT.read_text(encoding="utf-8")
 

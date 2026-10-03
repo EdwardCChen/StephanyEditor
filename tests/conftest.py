@@ -47,6 +47,11 @@ import pytest  # noqa: E402
 def app():
     from PySide6.QtWidgets import QApplication
 
+    # QtWebEngine 必須在 QApplication 建立之前載入（SRS-008 D-01），
+    # 與 __main__ 走同一個入口，沒裝 WebEngine 時什麼也不做。
+    from stephany.ui.preview import prepare_webengine
+
+    prepare_webengine()
     instance = QApplication.instance() or QApplication([])
     yield instance
     # QClipboard.setMimeData() 會把 QMimeData 的所有權轉給剪貼簿；若關閉時
@@ -76,8 +81,12 @@ def editor(app):
 
 
 @pytest.fixture
-def window(app, tmp_path, monkeypatch):
-    """一個主視窗，設定檔與巨集檔都導到暫存目錄，不污染使用者的 ~/.config。"""
+def isolated_settings(tmp_path, monkeypatch):
+    """主視窗的設定檔與巨集檔都導到暫存目錄，不污染使用者真正的設定。
+
+    自己建 `MainWindow` 的測試一定要用這個 fixture（或 `window`）。
+    回傳 `stephany.ui.mainwindow` 模組，方便直接 `mw.MainWindow([])`。
+    """
     from PySide6.QtCore import QSettings
 
     import stephany.ui.mainwindow as mw
@@ -85,8 +94,24 @@ def window(app, tmp_path, monkeypatch):
     QSettings.setPath(
         QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(tmp_path)
     )
+    # setPath() 只管 INI 格式。主視窗用的 QSettings(org, app) 在 Linux 上剛好
+    # 是 INI，在 macOS 卻是 plist、Windows 是登錄檔——不強制改成 INI 的話，
+    # 測試在那兩個平台上讀寫的是使用者真正的設定（SRS-008 開發時發現）。
+    monkeypatch.setattr(
+        mw,
+        "QSettings",
+        lambda org, app: QSettings(
+            QSettings.Format.IniFormat, QSettings.Scope.UserScope, org, app
+        ),
+    )
     monkeypatch.setattr(mw, "default_store_path", lambda: tmp_path / "macros.json")
-    win = mw.MainWindow([])
+    return mw
+
+
+@pytest.fixture
+def window(app, isolated_settings):
+    """一個主視窗，設定檔與巨集檔都在暫存目錄。"""
+    win = isolated_settings.MainWindow([])
     yield win
     for index in range(win.tabs.count()):
         win.tabs.widget(index).document().setModified(False)
