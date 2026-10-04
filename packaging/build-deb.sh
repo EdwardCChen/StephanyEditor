@@ -111,6 +111,8 @@ printf '%s (%s) unstable; urgency=low\n\n  * 由 packaging/build-deb.sh 產生�
 chmod 0644 "$STAGE/usr/share/doc/$PKG/changelog.Debian.gz"
 
 # --- 套件中繼資料 ---
+# python3-pyside6.* 是 Ubuntu 24.10 起才有的套件，24.04 LTS 裝不起來（SRS-004 D-02）；
+# 各版收錄的都 ≥ 6.6，滿足 requirements.txt，所以不加版本下限。
 INSTALLED_KB="$(du -sk "$STAGE" | cut -f1)"
 install -d "$STAGE/DEBIAN"
 cat > "$STAGE/DEBIAN/control" <<EOF
