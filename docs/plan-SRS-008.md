@@ -85,3 +85,5 @@
 | WebEngine 回呼 | 面板被刪除後，還在途中的 `runJavaScript` 回呼才回來，對已刪除的物件發信號 | 回呼開頭以 `shiboken6.isValid()` 檢查 |
 | PySide6 6.11 | `QUrl.adjusted(RemoveFragment)` 綁定不接受該列舉 | 改用字串比對 |
 | 打包大小 | macOS `.app` 實測 343 MB → 1.2 GB | 已知悉（A1 拍板時即說明），寫進 README |
+| 啟動當機（上線後） | 上次關閉時預覽開著、視窗最大化 → 下次啟動在 `show()` 裡 segfault（`QWidgetPrivate::showChildren`）。面板隨 `restoreState()` 在 show 途中變可見，當場建 WebEngine 會在 macOS 建立原生子視窗、改動正在被逐一顯示的子元件。cocoa 實測 8 次當 5 次，offscreen 0 次 | 預覽延到下一輪事件迴圈才建；回歸測試驗「show() 回來當下尚未建立」。真實設定值 cocoa 連跑 15 次皆正常。教訓寫進 CLAUDE.md 已知地雷區 |
+| F-MD-09 面板寬度 | 從保存狀態還原時，第一次建預覽的 `resizeDocks(一半寬)` 蓋掉了使用者調過的寬度（300 → 399） | 只有非還原的第一次打開才設一半寬 |

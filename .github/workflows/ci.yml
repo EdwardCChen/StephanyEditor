@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # 預覽的 WebEngine 測試在缺少 WebEngine 時必須紅燈而不是 skip（SRS-008）。
+  # 核心 job 不跑 GUI 測試，不受影響。
+  STEPHANY_REQUIRE_WEBENGINE: "1"
+
 jobs:
   core:
     # 刻意不安裝 PySide6：core/ 若不小心 import 了 Qt，這個 job 會紅燈。
