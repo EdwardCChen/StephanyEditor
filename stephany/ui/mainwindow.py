@@ -22,7 +22,7 @@ import os
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSettings, Qt
+from PySide6.QtCore import QEvent, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence, QTextOption
 from PySide6.QtWidgets import (
     QDialog,
@@ -725,13 +725,28 @@ class MainWindow(QMainWindow):
 
     def _on_preview_visibility(self, visible: bool):
         if visible:
-            if self.preview is None:
-                self.preview = MarkdownPreview(self.preview_dock)
-                self.preview_dock.setWidget(self.preview)
-                self.resizeDocks([self.preview_dock], [self.width() // 2], Qt.Orientation.Horizontal)
-            self.preview.set_editor(self.editor())
+            # 不能在這裡當場建：上次關閉時面板開著的話，它是隨 restoreState()
+            # 在 show() 途中變成可見的。此時建 WebEngine，macOS 上它會建立原生
+            # 子視窗、改動主視窗的子元件，而 Qt 正在逐一顯示這些子元件
+            # （QWidgetPrivate::showChildren），結果讀到失效的指標而 segfault
+            # ——最大化的視窗實測 8 次當 5 次。延到下一輪事件迴圈再建。
+            QTimer.singleShot(0, self._attach_preview)
         elif self.preview is not None:
             self.preview.set_editor(None)
+
+    def _attach_preview(self):
+        if not self.preview_dock.isVisible():  # 等待期間又被關掉了
+            return
+        if self.preview is None:
+            self.preview = MarkdownPreview(self.preview_dock)
+            self.preview_dock.setWidget(self.preview)
+            # 預設佔一半寬——但面板若是隨保存的狀態還原出來的，寬度也一起
+            # 還原了，不能蓋掉（F-MD-09）
+            if not self._preview_restored_open:
+                self.resizeDocks(
+                    [self.preview_dock], [self.width() // 2], Qt.Orientation.Horizontal
+                )
+        self.preview.set_editor(self.editor())
 
     def _build_status_bar(self):
         self.lbl_pos = QLabel("")
@@ -1105,6 +1120,7 @@ class MainWindow(QMainWindow):
         state = self.settings.value("window_state")
         if state:
             self.restoreState(state)  # F-MD-09：預覽面板開關與寬度
+        self._preview_restored_open = not self.preview_dock.isHidden()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():

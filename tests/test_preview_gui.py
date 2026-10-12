@@ -28,7 +28,7 @@ import gc
 import time
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QImage, QPalette
 
 from stephany.ui import preview as preview_module
@@ -419,9 +419,12 @@ def open_preview(app, window):
     if not window.act_preview.isChecked():
         window.act_preview.trigger()
     wait_until(app, lambda: window.preview_dock.isVisible(), "預覽面板出現")
-    pv = window.preview
-    wait_until(app, lambda: pv.render_count > 0, "預覽第一次渲染")
-    return pv
+    # 預覽元件在面板出現後的下一輪事件迴圈才建（見 _on_preview_visibility）
+    wait_until(
+        app, lambda: window.preview is not None and window.preview.render_count > 0,
+        "預覽建立並第一次渲染",
+    )
+    return window.preview
 
 
 def test_f_md_01_action_is_in_view_menu_with_shortcut(window):
@@ -518,6 +521,80 @@ def test_f_md_09_panel_state_survives_restart(app, window):
         again.setParent(None)
         again.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+
+
+def test_restored_panel_is_not_built_while_the_window_is_being_shown(app, window):
+    """回歸：上次關閉時預覽開著、視窗最大化，下次啟動在 show() 裡 segfault。
+
+    面板隨 restoreState() 在 show() 途中變成可見，若此時就建 WebEngine
+    預覽，macOS 上它會建立原生子視窗、改動主視窗的子元件，而 Qt 正在
+    逐一顯示這些子元件（QWidgetPrivate::showChildren）——讀到失效的指標。
+    實測 cocoa 8 次當 5 次；offscreen 重現不出來，所以這裡驗的是性質本身：
+    show() 回來的當下預覽還沒建，下一輪事件迴圈才建。
+    """
+    import stephany.ui.mainwindow as mw
+
+    open_preview(app, window)
+    window.showMaximized()
+    window.close()
+    again = mw.MainWindow([])
+    try:
+        again.show()
+        assert again.preview_dock.isVisible(), "前提：面板隨保存的狀態一起顯示"
+        assert again.preview is None, "不得在 show() 途中建立預覽元件"
+        wait_until(
+            app, lambda: again.preview is not None and again.preview.render_count > 0,
+            "show() 之後才建立並渲染",
+        )
+        assert again.preview.current_editor() is again.editor()
+    finally:
+        for index in range(again.tabs.count()):
+            again.tabs.widget(index).document().setModified(False)
+        again.close()
+        again.setParent(None)
+        again.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+
+
+def test_f_md_09_panel_width_survives_restart(app, window):
+    """面板第一次打開時預設佔一半寬；但從保存的狀態還原時，不得蓋掉使用者調過的寬度。"""
+    import stephany.ui.mainwindow as mw
+
+    window.resize(1100, 740)
+    open_preview(app, window)
+    window.resizeDocks([window.preview_dock], [300], Qt.Orientation.Horizontal)
+    settle(app, 100)
+    saved = window.preview_dock.width()
+    window.close()
+    again = mw.MainWindow([])
+    try:
+        again.show()
+        wait_until(app, lambda: again.preview is not None and again.preview.render_count > 0, "重開後預覽")
+        settle(app, 100)
+        assert abs(again.preview_dock.width() - saved) <= 10, (saved, again.preview_dock.width())
+    finally:
+        for index in range(again.tabs.count()):
+            again.tabs.widget(index).document().setModified(False)
+        again.close()
+        again.setParent(None)
+        again.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+
+
+def test_first_open_gives_the_panel_half_the_window(app, window):
+    window.resize(1100, 740)
+    open_preview(app, window)
+    settle(app, 100)
+    assert window.preview_dock.width() >= 400
+
+
+def test_panel_closed_before_deferred_build_does_not_build(app, window):
+    """延後建立期間面板又被關掉，就不該再建（也不該跟著編輯器）。"""
+    window.show()
+    window.act_preview.trigger()
+    window.act_preview.trigger()  # 同一輪事件迴圈內又關掉
+    settle(app, 200)
+    assert window.preview is None
 
 
 # ======================================================================
