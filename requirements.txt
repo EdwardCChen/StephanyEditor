@@ -1,5 +1,8 @@
-PySide6-Essentials>=6.6
-PySide6-Addons>=6.6
+# 6.12 起 WebEngine 從 PySide6-Addons 拆成獨立的 PySide6-WebEngine 套件（且 6.12 前
+# 沒有正式版本），macOS wheel 也改成要求 14.0 以上。Markdown 預覽（SRS-008）是在
+# 6.11 上開發與實機驗證的，升級 6.12 需另行評估，先固定在 6.11.x。
+PySide6-Essentials>=6.6,<6.12
+PySide6-Addons>=6.6,<6.12
 markdown-it-py>=3.0
 mdit-py-plugins>=0.4
 linkify-it-py>=2.0

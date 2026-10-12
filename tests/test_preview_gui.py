@@ -65,9 +65,26 @@ def wait_rendered(app, pv: MarkdownPreview, before: int):
     wait_until(app, lambda: pv.render_count > before, "預覽完成渲染")
 
 
+def require_webengine():
+    """沒有 WebEngine 時：本機 skip；CI（STEPHANY_REQUIRE_WEBENGINE=1）直接失敗。
+
+    實際發生過：PySide6 6.12 把 WebEngine 從 PySide6-Addons 拆成獨立套件，
+    重新安裝後 WebEngine 就不見了。若只是 skip，CI 照樣綠燈，預覽的測試
+    卻一個都沒跑。
+    """
+    import os
+
+    if preview_module.WEBENGINE_AVAILABLE:
+        return
+    message = f"沒有 QtWebEngine：{preview_module.WEBENGINE_IMPORT_ERROR}"
+    if os.environ.get("STEPHANY_REQUIRE_WEBENGINE"):
+        pytest.fail(message + "（CI 要求必須有 WebEngine，見 requirements.txt）")
+    pytest.skip(message)
+
+
 def make_preview(app, editor, *, webengine: bool, text: str = "", path=None):
-    if webengine and not preview_module.WEBENGINE_AVAILABLE:
-        pytest.skip(f"沒有 QtWebEngine：{preview_module.WEBENGINE_IMPORT_ERROR}")
+    if webengine:
+        require_webengine()
     pv = MarkdownPreview(use_webengine=webengine)
     pv.resize(600, 400)
     pv.show()
@@ -653,8 +670,7 @@ def test_preview_survives_the_real_startup_wiring(tmp_path):
     import sys
     from pathlib import Path
 
-    if not preview_module.WEBENGINE_AVAILABLE:
-        pytest.skip(f"沒有 QtWebEngine：{preview_module.WEBENGINE_IMPORT_ERROR}")
+    require_webengine()
     doc = tmp_path / "a.md"
     doc.write_text("# 標題\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", encoding="utf-8")
     root = Path(__file__).resolve().parents[1]
